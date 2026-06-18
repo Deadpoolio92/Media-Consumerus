@@ -1,0 +1,10 @@
+# Force LF on files consumed by the Linux container, regardless of a
+# developer's core.autocrlf setting on Windows. Without this, a Windows
+# checkout rewrites entrypoint.sh to CRLF and the container crash-loops with:
+#   exec /entrypoint.sh: no such file or directory
+# (the shebang becomes "#!/bin/sh\r", so Linux looks for an interpreter
+# literally named /bin/sh\r). Added by the fork; upstream ships none.
+*.sh           text eol=lf
+*.conf         text eol=lf
+entrypoint.sh  text eol=lf
+Dockerfile     text eol=lf
