@@ -28,12 +28,26 @@ table). The full prioritized list is in **[planning/BACKLOG.md](planning/BACKLOG
 
 ## Status
 
-**This IS the fork — Yamtrack cloned, not yet stood up.** This repo is the cloned
+**This IS the fork — Yamtrack cloned and running locally.** This repo is the cloned
 Yamtrack fork (`origin` = `https://github.com/Deadpoolio92/Media-Consumerus.git`, default
-branch `dev`). The planning docs from the old scratch repo now live here in
-[planning/](planning/). Yamtrack's own files (`src/`, `docs/`, `README.md`, `LICENSE`,
-`docker-compose*.yml`) are upstream's — leave them untouched (see Fork strategy). No
-enhancement code written yet; Yamtrack hasn't been run locally yet.
+branch `dev`; `upstream` = `FuzzyGrim/Yamtrack`, push-disabled). The planning docs from the
+old scratch repo now live here in [planning/](planning/). Yamtrack's own files (`src/`,
+`docs/`, `README.md`, `LICENSE`, `docker-compose*.yml`) are upstream's — leave them
+untouched (see Fork strategy). No enhancement code written yet, but stock Yamtrack now runs
+locally at http://localhost:8000.
+
+**Local run (merge-safe).** Config lives in a git-ignored `docker-compose.override.yml`
+(via `.git/info/exclude`, so it never touches the tracked compose file). It builds from the
+local `Dockerfile` (image `media-consumerus:local`, NOT the published ghcr image — so `src/`
+changes actually run), and sets `SECRET`, `TMDB_API`, `REGISTRATION`, `ADMIN_ENABLED` inline
+(no separate `.env`). Run: `docker compose up -d --build`. Note: after registering your
+account, set `REGISTRATION=False` in the override and re-up to lock it to you. Optional
+provider keys (IGDB for games) are omitted so Yamtrack's bundled defaults apply.
+
+**Windows gotcha (fixed, committed):** a `.gitattributes` forces LF on `*.sh`/`*.conf`/
+`entrypoint.sh`/`Dockerfile`. Without it, `core.autocrlf=true` checks them out as CRLF and
+the container crash-loops with `exec /entrypoint.sh: no such file or directory`. If new
+shell/conf files are added later, make sure they end up LF.
 
 **Verified asset:** v1's reverse-engineered Crunchyroll sync was live-tested on 2026-06-16
 and **still works** — every endpoint returns 200 with the JSON shapes v1 parses. The CR
@@ -43,19 +57,20 @@ top-level, not nested).
 
 ### ▶ Resume here (next session)
 
-The pivot is locked (fork Yamtrack, stay merge-able, private). The planning docs are now
-in this fork. Open next steps:
+The pivot is locked (fork Yamtrack, stay merge-able, private). The planning docs are in
+this fork and stock Yamtrack runs locally. Open next steps:
 
-1. **Stand Yamtrack up locally** — start Docker Desktop, then `docker compose up` in this
-   repo (configure `.env` first — see Yamtrack's `docs/setup.md` + `docs/env-variables.md`,
-   needs TMDB etc.). Register the first user, add a few items so the UI has real data.
+1. **Register + load data** — open http://localhost:8000, create your account, then set
+   `REGISTRATION=False` in `docker-compose.override.yml` and `docker compose up -d` to lock
+   it down. Add a few items across types so the UI has real data to evaluate.
 2. **Run the Yamtrack eval** — the maintainer still owes the hands-on ~30-min pass to
    confirm/refine the backlog (checklist already produced; results feed
    [planning/BACKLOG.md](planning/BACKLOG.md)).
 3. **`/plan-eng-review`** — turn [planning/BACKLOG.md](planning/BACKLOG.md) into concrete,
    merge-able Django changes (new apps / fields / settings flags), starting with the
    highest-value, lowest-merge-risk P0 items (dub/sub field E1, list filters E2,
-   hide-types toggle E3, re-watching status E4).
+   hide-types toggle E3, re-watching status E4). **Before E4**, check `upstream/dev` for
+   the `harshil/fix-rewatch-tracking` work — may land upstream (see BACKLOG E4).
 
 v1 (the Google Sheet + Apps Script) lives at `../Media Tracker v1`. It is the source for
 the personal-data import (transform v1 export → Yamtrack CSV import format).
