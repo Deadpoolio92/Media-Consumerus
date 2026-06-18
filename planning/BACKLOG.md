@@ -63,6 +63,10 @@ differentiator; intentionally cut.
 - **Approach:** add "Re-watching" as a new status enum value; wire it into the status
   picker, the list filters (E2), and any status-driven logic. Mirror v1's behavior:
   Completed → Re-Watching on re-entry.
+- **Upstream watch (2026-06-18):** upstream has a branch `harshil/fix-rewatch-tracking` —
+  Yamtrack may be building this themselves. **Before implementing E4, check whether it has
+  landed in `upstream/dev`** (or evaluate cherry-picking/merging that branch) rather than
+  writing a conflicting implementation. This is the merge-able payoff: let upstream do it.
 
 ## P1 — medium
 
