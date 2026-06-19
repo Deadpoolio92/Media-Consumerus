@@ -10,7 +10,16 @@ from app.forms import (
     SeasonForm,
     TvForm,
 )
-from app.models import TV, Item, MediaTypes, Season, Sources, Status
+from app.models import (
+    TV,
+    AnimeAvailability,
+    AvailabilitySource,
+    Item,
+    MediaTypes,
+    Season,
+    Sources,
+    Status,
+)
 
 
 class BasicMediaForm(TestCase):
@@ -479,4 +488,131 @@ class ManualItemFormTest(TestCase):
         # IDs should be different
         self.assertNotEqual(item1.media_id, item2.media_id)
         self.assertTrue(item1.media_id)
-        self.assertTrue(item2.media_id)
+
+
+class AnimeFormAvailabilityTests(TestCase):
+    """Test AnimeForm's availability save-override (change-detection)."""
+
+    def setUp(self):
+        """Create a user and an anime Item to attach availability rows to."""
+        self.credentials = {"username": "test", "password": "12345"}
+        self.user = get_user_model().objects.create_user(**self.credentials)
+        self.item = Item.objects.create(
+            media_id="1",
+            source=Sources.MAL.value,
+            media_type=MediaTypes.ANIME.value,
+            title="Test Anime",
+            image="http://example.com/image.jpg",
+        )
+
+    def _base_form_data(self, audio="", subtitle=""):
+        return {
+            "media_id": "1",
+            "source": Sources.MAL.value,
+            "media_type": MediaTypes.ANIME.value,
+            "user": self.user.id,
+            "score": 7.5,
+            "progress": 5,
+            "status": Status.IN_PROGRESS.value,
+            "repeats": 0,
+            "audio_locales": audio,
+            "subtitle_locales": subtitle,
+        }
+
+    def _save_form(self, form):
+        """Save a validated AnimeForm bound to self.item, mirroring the view.
+
+        Mirrors create_entry's pattern (views.py): the instance's ``item``
+        (and ``user``) are set directly on the unsaved instance before the
+        single ``save()`` call — not via commit=False + a second save.
+        """
+        form.instance.item = self.item
+        form.instance.user = self.user
+        return form.save()
+
+    def test_empty_submit_with_no_existing_row_creates_nothing(self):
+        """Submitting blank locale fields with no prior row is a no-op."""
+        form = AnimeForm(data=self._base_form_data())
+        self.assertTrue(form.is_valid(), form.errors)
+        self._save_form(form)
+
+        self.assertFalse(
+            AnimeAvailability.objects.filter(item_id=self.item.id).exists(),
+        )
+
+    def test_non_empty_submit_with_no_existing_row_creates_manual_row(self):
+        """A first-time non-empty submit creates a manual-source row."""
+        form = AnimeForm(
+            data=self._base_form_data(audio="Japanese, English", subtitle="English"),
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self._save_form(form)
+
+        availability = AnimeAvailability.objects.get(item_id=self.item.id)
+        self.assertEqual(availability.audio_locales, ["ja-JP", "en-US"])
+        self.assertEqual(availability.subtitle_locales, ["en-US"])
+        self.assertEqual(availability.source, AvailabilitySource.MANUAL.value)
+
+    def test_unchanged_resubmit_does_not_touch_existing_row(self):
+        """Resubmitting identical values is a no-op (last-write-wins guard).
+
+        A routine score/status save round-trips the prefilled values
+        unchanged; it must not flip a synced row's source back to manual or
+        bump updated_at.
+        """
+        existing = AnimeAvailability.objects.create(
+            item=self.item,
+            audio_locales=["ja-JP"],
+            subtitle_locales=[],
+            source=AvailabilitySource.MYDUBLIST.value,
+        )
+        original_updated_at = existing.updated_at
+
+        form = AnimeForm(
+            data=self._base_form_data(audio="Japanese", subtitle=""),
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self._save_form(form)
+
+        existing.refresh_from_db()
+        self.assertEqual(existing.source, AvailabilitySource.MYDUBLIST.value)
+        self.assertEqual(existing.updated_at, original_updated_at)
+
+    def test_changed_resubmit_updates_row_and_marks_manual(self):
+        """A genuine change upserts the row and flips source to manual."""
+        AnimeAvailability.objects.create(
+            item=self.item,
+            audio_locales=["ja-JP"],
+            subtitle_locales=[],
+            source=AvailabilitySource.MYDUBLIST.value,
+        )
+
+        form = AnimeForm(
+            data=self._base_form_data(audio="Japanese, English", subtitle=""),
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self._save_form(form)
+
+        availability = AnimeAvailability.objects.get(item_id=self.item.id)
+        self.assertEqual(availability.audio_locales, ["ja-JP", "en-US"])
+        self.assertEqual(availability.source, AvailabilitySource.MANUAL.value)
+
+    def test_unknown_language_token_raises_validation_error(self):
+        """A token that isn't a known display name or code-shaped fails clean."""
+        form = AnimeForm(data=self._base_form_data(audio="Klingon"))
+        self.assertFalse(form.is_valid())
+        self.assertIn("audio_locales", form.errors)
+
+    def test_unmapped_code_shaped_token_passes_through(self):
+        """A code-shaped but unmapped token (e.g. from a sync) is accepted raw."""
+        form = AnimeForm(data=self._base_form_data(audio="xx-XX"))
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["audio_locales"], ["xx-XX"])
+
+    def test_duplicate_tokens_collapsed_preserving_order(self):
+        """Duplicate languages in the input collapse to one, order preserved."""
+        form = AnimeForm(
+            data=self._base_form_data(audio="Japanese, English, Japanese"),
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["audio_locales"], ["ja-JP", "en-US"])
