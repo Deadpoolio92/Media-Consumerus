@@ -12,6 +12,7 @@ db.sqlite3-wal
 .agents
 AGENTS.md
 CLAUDE.md
+planning/
 requests.http
 TODO.txt
 .codex
