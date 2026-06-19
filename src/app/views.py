@@ -23,6 +23,7 @@ from app import statistics as stats
 from app.forms import EpisodeForm, ManualItemForm, get_form_class
 from app.models import (
     TV,
+    AnimeAvailability,
     BasicMedia,
     Item,
     MediaTypes,
@@ -305,6 +306,15 @@ def media_details(request, source, media_type, media_id, title):  # noqa: ARG001
     else:
         watch_providers = None
 
+    # Title-level dub/sub availability (anime only); None until first recorded.
+    availability = None
+    if media_type == MediaTypes.ANIME.value:
+        availability = AnimeAvailability.objects.filter(
+            item__media_id=media_id,
+            item__source=source,
+            item__media_type=media_type,
+        ).first()
+
     context = {
         "media": media_metadata,
         "media_type": media_type,
@@ -312,6 +322,7 @@ def media_details(request, source, media_type, media_id, title):  # noqa: ARG001
         "current_instance": current_instance,
         "watch_providers": watch_providers,
         "watch_provider_region": request.user.watch_provider_region,
+        "availability": availability,
     }
     return render(request, "app/media_details.html", context)
 

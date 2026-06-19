@@ -6,6 +6,8 @@ from django.test import TestCase
 from django.urls import reverse
 
 from app.models import (
+    AnimeAvailability,
+    AvailabilitySource,
     Item,
     MediaTypes,
     Movie,
@@ -211,3 +213,114 @@ class MediaDetailsViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         item.refresh_from_db()
         self.assertEqual(item.image, existing_image)
+
+    @patch("app.providers.services.get_media_metadata")
+    def test_movie_details_has_no_availability_card(self, mock_get_metadata):
+        """Regression: non-anime media types render with no availability card.
+
+        The AVAILABILITY card and its DB lookup are gated behind
+        media_type == anime; movies (and other types) must keep rendering
+        exactly as before this feature was added.
+        """
+        mock_get_metadata.return_value = {
+            "media_id": "238",
+            "title": "Test Movie",
+            "media_type": MediaTypes.MOVIE.value,
+            "source": Sources.TMDB.value,
+            "image": "http://example.com/image.jpg",
+            "overview": "Test overview",
+            "release_date": "2023-01-01",
+        }
+
+        response = self.client.get(
+            reverse(
+                "media_details",
+                kwargs={
+                    "source": Sources.TMDB.value,
+                    "media_type": MediaTypes.MOVIE.value,
+                    "media_id": "238",
+                    "title": "test-movie",
+                },
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["availability"])
+        self.assertNotContains(response, "AVAILABILITY")
+
+    @patch("app.providers.services.get_media_metadata")
+    def test_anime_details_with_no_availability_row_shows_not_recorded(
+        self,
+        mock_get_metadata,
+    ):
+        """An anime with no AnimeAvailability row renders the empty state."""
+        mock_get_metadata.return_value = {
+            "media_id": "1",
+            "title": "Test Anime",
+            "media_type": MediaTypes.ANIME.value,
+            "source": Sources.MAL.value,
+            "image": "http://example.com/image.jpg",
+        }
+
+        response = self.client.get(
+            reverse(
+                "media_details",
+                kwargs={
+                    "source": Sources.MAL.value,
+                    "media_type": MediaTypes.ANIME.value,
+                    "media_id": "1",
+                    "title": "test-anime",
+                },
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["availability"])
+        self.assertContains(response, "AVAILABILITY")
+        self.assertContains(response, "Not recorded")
+
+    @patch("app.providers.services.get_media_metadata")
+    def test_anime_details_with_availability_row_shows_locale_badges(
+        self,
+        mock_get_metadata,
+    ):
+        """An anime with a recorded row renders its locale badges and source."""
+        mock_get_metadata.return_value = {
+            "media_id": "1",
+            "title": "Test Anime",
+            "media_type": MediaTypes.ANIME.value,
+            "source": Sources.MAL.value,
+            "image": "http://example.com/image.jpg",
+        }
+
+        item = Item.objects.create(
+            media_id="1",
+            source=Sources.MAL.value,
+            media_type=MediaTypes.ANIME.value,
+            title="Test Anime",
+            image="http://example.com/image.jpg",
+        )
+        AnimeAvailability.objects.create(
+            item=item,
+            audio_locales=["ja-JP", "en-US"],
+            subtitle_locales=["en-US"],
+            source=AvailabilitySource.MYDUBLIST.value,
+        )
+
+        response = self.client.get(
+            reverse(
+                "media_details",
+                kwargs={
+                    "source": Sources.MAL.value,
+                    "media_type": MediaTypes.ANIME.value,
+                    "media_id": "1",
+                    "title": "test-anime",
+                },
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.context["availability"])
+        self.assertContains(response, "Japanese")
+        self.assertContains(response, "English")
+        self.assertContains(response, "MyDubList")

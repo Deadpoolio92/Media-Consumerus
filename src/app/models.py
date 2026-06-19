@@ -1880,6 +1880,59 @@ class Anime(Media):
     tracker = FieldTracker()
 
 
+class AvailabilitySource(models.TextChoices):
+    """Where an AnimeAvailability row's locale data came from.
+
+    Local to availability tracking — do NOT fold into core ``Sources``
+    (that enum is for catalog providers; this is provenance only).
+    """
+
+    MANUAL = "manual", "Manual"
+    MYDUBLIST = "mydublist", "MyDubList"
+    CRUNCHYROLL = "crunchyroll", "Crunchyroll"
+
+
+class AnimeAvailability(models.Model):
+    """Title-level dub/sub availability for an anime ``Item``.
+
+    Availability is a property of the *title* (shared across rewatch rows),
+    so this hangs off ``Item`` via OneToOne rather than the per-user ``Anime``
+    model, and the heavily-constrained upstream ``Item`` is left untouched.
+
+    Write rules (last-write-wins, no guard) — kept by the sync task/signal:
+      * ``audio_locales`` is overwritten by any source (manual or auto).
+      * A sync NEVER blanks ``audio_locales`` for a title it has no data for
+        (an unknown title is skipped, prior value retained).
+      * ``subtitle_locales`` is NEVER written by an auto source — MyDubList has
+        no sub data, so subs stay manual until Crunchyroll (E9).
+    Locales are canonical codes (CR/BCP-47 style: ``ja-JP``, ``en-US``,
+    ``es-419``); display names come from ``app/languages.py``.
+    """
+
+    item = models.OneToOneField(
+        Item,
+        on_delete=models.CASCADE,
+        related_name="availability",
+    )
+    audio_locales = models.JSONField(default=list, blank=True)
+    subtitle_locales = models.JSONField(default=list, blank=True)
+    source = models.CharField(
+        max_length=20,
+        choices=AvailabilitySource,
+        default=AvailabilitySource.MANUAL.value,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        """Meta options for the model."""
+
+        verbose_name_plural = "anime availabilities"
+
+    def __str__(self):
+        """Return the title this availability belongs to."""
+        return self.item.__str__()
+
+
 class Movie(Media):
     """Model for movies."""
 

@@ -57,23 +57,38 @@ top-level, not nested).
 
 ### ▶ Resume here (next session)
 
-The pivot is locked (fork Yamtrack, stay merge-able, private). The planning docs are in
-this fork and stock Yamtrack runs locally. Open next steps:
+The pivot is locked (fork Yamtrack, stay merge-able, private). Stock Yamtrack runs locally.
+Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 → polish → E8.**
 
-1. **Register + load data** — open http://localhost:8000, create your account, then set
-   `REGISTRATION=False` in `docker-compose.override.yml` and `docker compose up -d` to lock
-   it down. Add a few items across types so the UI has real data to evaluate.
-2. **Run the Yamtrack eval** — the maintainer still owes the hands-on ~30-min pass to
-   confirm/refine the backlog (checklist already produced; results feed
-   [planning/BACKLOG.md](planning/BACKLOG.md)).
-3. **`/plan-eng-review`** — turn [planning/BACKLOG.md](planning/BACKLOG.md) into concrete,
-   merge-able Django changes (new apps / fields / settings flags), starting with the
-   highest-value, lowest-merge-risk P0 items (dub/sub field E1, list filters E2,
-   hide-types toggle E3, re-watching status E4). **Before E4**, check `upstream/dev` for
-   the `harshil/fix-rewatch-tracking` work — may land upstream (see BACKLOG E4).
+**Done / planned:**
+- **E3 (hide unused media types) — RESOLVED config-only (2026-06-18).** Upstream already ships
+  per-user `{type}_enabled` flags + a Preferences UI honored across nav/search/calendar/stats.
+  No code needed: untick manga/comic/book/boardgame in Preferences. (See decision-log.)
+- **E1 (dub/sub) — IN PROGRESS. T1–T3 DONE (2026-06-19); next action: T4.** Full spec:
+  **[planning/E1-dub-sub-plan.md](planning/E1-dub-sub-plan.md)** (per-task DONE notes recorded
+  there). Scope is *availability* tracking: `AnimeAvailability` model (OneToOne→`Item`, JSON
+  locale-code lists), manual entry + **MyDubList** auto-fill (daily Celery task + async
+  on-add), last-write-wins, shared `app/languages.py` map.
+  - **Done:** **T1** `AnimeAvailability` model + migration `0062` + admin · **T2**
+    `app/languages.py` (faithful 26-entry port of v1 `LANGUAGES`, code↔display helpers) ·
+    **T3** manual entry (`AnimeForm` save-override upserts on change only; `views.py` badge
+    context key; "AVAILABILITY" card in `media_details.html`; `locale_display` filter in NEW
+    `app/templatetags/availability_tags.py`). **T1–T3 unblock the E10 import** (fields exist
+    end-to-end). All additive; no upstream core model/file edited except an additive context
+    key + the anime badge card.
+  - **Next: T4 (`app/providers/mydublist.py`).** FIRST resolve the open build-time unknown —
+    **fetch the real MyDubList JSON and confirm its schema** (key = MAL id? value shape?
+    locale format?) before writing `normalize_locales`. If it keys by AniList id not MAL, add
+    an id-map step. Then T5 (daily Celery sync) → T6 (on-add signal) → T7 (full tests, incl.
+    3 CRITICAL gaps).
+  - **Dev env:** local `uv` venv is set up (`uv sync --group test`); run Django/pytest via
+    `uv run` from `src/` with `DJANGO_SETTINGS_MODULE=config.test_settings` (SQLite). Docker
+    Desktop was not running this session. E2 gotcha captured in
+    [TODOS.md](planning/TODOS.md) (JSONField `__contains` unsupported on SQLite).
 
-v1 (the Google Sheet + Apps Script) lives at `../Media Tracker v1`. It is the source for
-the personal-data import (transform v1 export → Yamtrack CSV import format).
+**Backlog + sequence:** [planning/BACKLOG.md](planning/BACKLOG.md). v1 (Google Sheet + Apps
+Script) lives at `../Media Tracker v1` — source for the E10 personal-data import (transform
+v1 export → Yamtrack CSV) and the `LANGUAGES` map E1 ports.
 
 ## Product scope (post-pivot)
 
@@ -183,3 +198,55 @@ doubt, invoke the skill.
 - Visual polish → `/design-review`
 - Ship / deploy / PR → `/ship` or `/land-and-deploy`
 - Author a backlog-ready spec/issue → `/spec`
+
+## GBrain Configuration (configured by /setup-gbrain)
+
+- Mode: local-stdio
+- Engine: pglite (`~/.gbrain/brain.pglite`, config at `~/.gbrain/config.json` mode 0600)
+- Embeddings: ollama:nomic-embed-text (768d) — requires the local Ollama app running
+- Setup date: 2026-06-19
+- MCP registered: yes (user scope, `gbrain serve`)
+- Artifacts sync: off
+- Current repo policy: **read-write** (`github.com/deadpoolio92/media-consumerus`)
+- Code index: this repo is imported as gbrain source `gstack-code-media-consumerus`
+  (388 pages / 2363 chunks; 1 file skipped — the ~3.9MB
+  `src/integrations/imports/data/kitsu-mu-mapping.json` exceeds Postgres's
+  tsvector 1MB limit, not worth indexing). Refresh after code changes with
+  `gbrain sync --strategy code --skip-failed` — but first stop the MCP serve
+  (it holds the lock; see gotcha below), then restart Claude Code after.
+- `jq` installed at `~/bin/jq.exe` (was missing; needed by `gstack-gbrain-repo-policy`)
+
+**Windows / PGLite gotcha:** PGLite is single-writer — only one `gbrain`
+process can hold the DB lock at a time. The long-lived MCP `gbrain serve` is
+fine, but a leftover serve from a prior session will starve the new session's
+MCP (`claude mcp list` → "✘ Failed to connect") and make CLI calls
+(`gbrain doctor`/`search`/`sources list`) time out. Fix: kill stray
+`gbrain serve` / `bun … cli.ts serve` processes, then `rm -rf
+~/.gbrain/brain.pglite/.gbrain-lock`, then restart Claude Code. Avoid running
+`gbrain` CLI commands while the MCP serve is up (they contend for the lock and
+leave stale locks).
+
+## GBrain Search Guidance (configured by /setup-gbrain)
+<!-- gstack-gbrain-search-guidance:start -->
+
+GBrain is set up and this repo's code is indexed. Prefer gbrain over Grep when
+the question is semantic or you don't yet know the exact identifier. Two indexed
+corpora, reachable via the `mcp__gbrain__*` tools (or the `gbrain` CLI when the
+serve is stopped):
+
+- This repo's code (source `gstack-code-media-consumerus`, 388 pages).
+- The `default` brain memory (notes/plans/decisions).
+
+Prefer gbrain when:
+
+- "Where is X handled?" / semantic intent, no exact string yet →
+  `mcp__gbrain__search` / `mcp__gbrain__query`.
+- "Where is symbol Y defined / referenced?" → `code-def` / `code-refs`
+  (verified working, e.g. `code-def Media` → `src/app/models.py`).
+- "What calls Y? / what does Y call?" → `code-callers` / `code-callees`.
+- "What did we decide / plan before?" → search the `default` source.
+
+Grep is still right for known exact strings, regex, and file globs. Re-index
+after code changes per the "Code index" note above.
+
+<!-- gstack-gbrain-search-guidance:end -->
