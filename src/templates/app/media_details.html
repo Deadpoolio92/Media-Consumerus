@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load app_tags %}
+{% load availability_tags %}
 {% load humanize %}
 
 {% block title %}
@@ -512,6 +513,43 @@
               <h3 class="text-sm font-semibold text-gray-400">COMPLETELY</h3>
               <p class="text-gray-200">{{ media.time_to_beat.completely|seconds_to_duration }}</p>
             </div>
+          {% endif %}
+        </div>
+      {% endif %}
+      {# Dub/sub availability (anime only) — title-level, NOT a watch record #}
+      {% if media_type == MediaTypes.ANIME.value %}
+        <div class="bg-[#2a2f35] p-4 rounded-lg text-center md:text-start mt-4">
+          <h3 class="text-sm font-semibold text-gray-400 mb-4">AVAILABILITY</h3>
+          {% if availability %}
+            <div class="mb-4">
+              <h3 class="text-sm font-semibold text-gray-400 mb-2">DUBS AVAILABLE</h3>
+              {% if availability.audio_locales %}
+                <div class="flex flex-wrap gap-2 justify-center md:justify-start">
+                  {% for code in availability.audio_locales %}
+                    <span class="px-3 py-1 bg-sky-700 text-white rounded-full text-sm">{{ code|locale_display }}</span>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="text-gray-200">Not recorded</p>
+              {% endif %}
+            </div>
+            <div class="mb-4">
+              <h3 class="text-sm font-semibold text-gray-400 mb-2">SUBS AVAILABLE</h3>
+              {% if availability.subtitle_locales %}
+                <div class="flex flex-wrap gap-2 justify-center md:justify-start">
+                  {% for code in availability.subtitle_locales %}
+                    <span class="px-3 py-1 bg-teal-700 text-white rounded-full text-sm">{{ code|locale_display }}</span>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="text-gray-200">Not recorded</p>
+              {% endif %}
+            </div>
+            <p class="text-xs text-gray-400">
+              via {{ availability.get_source_display }} · updated {{ availability.updated_at|timesince }} ago
+            </p>
+          {% else %}
+            <p class="text-gray-200">Not recorded</p>
           {% endif %}
         </div>
       {% endif %}

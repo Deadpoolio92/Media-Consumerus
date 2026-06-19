@@ -1,12 +1,15 @@
 import math
+import re
 
 from django import forms
 from django.conf import settings
 
-from app import config
+from app import config, languages
 from app.models import (
     TV,
     Anime,
+    AnimeAvailability,
+    AvailabilitySource,
     BoardGame,
     Book,
     Comic,
@@ -19,6 +22,39 @@ from app.models import (
     Season,
     Sources,
 )
+
+# Locale-code shape (e.g. ja-JP, es-419) — lets the manual availability form
+# accept a raw code that isn't in languages.LOCALE_DISPLAY yet (e.g. an
+# unmapped code a sync stored), so editing such a title never traps the user.
+_LOCALE_CODE_RE = re.compile(r"^[a-z]{2}-[A-Za-z0-9]+$")
+
+
+def _codes_to_text(codes):
+    """Render stored locale codes as the comma-separated names the form shows."""
+    return ", ".join(languages.display_name(code) for code in codes)
+
+
+def _parse_locale_text(text):
+    """Parse a comma-separated language string into canonical locale codes.
+
+    Each token resolves via the shared map (display name OR existing code);
+    an unmapped but code-shaped token passes through (shown raw); anything
+    else raises a clear validation error. Order preserved, duplicates dropped.
+    """
+    codes = []
+    for raw in text.split(","):
+        token = raw.strip()
+        if not token:
+            continue
+        code = languages.code_for_display(token)
+        if code is None:
+            if not _LOCALE_CODE_RE.match(token):
+                msg = f"Unknown language: '{token}'"
+                raise forms.ValidationError(msg)
+            code = token
+        if code not in codes:
+            codes.append(code)
+    return codes
 
 
 def get_form_class(media_type):
@@ -249,12 +285,96 @@ class MangaForm(MediaForm):
 
 
 class AnimeForm(MediaForm):
-    """Form for anime."""
+    """Form for anime.
+
+    Adds two optional title-level availability fields backed by the related
+    ``AnimeAvailability`` (keyed by Item, not Anime). They are free text of
+    comma-separated language names normalized to canonical codes; setting them
+    marks the row ``source=manual``.
+    """
+
+    audio_locales = forms.CharField(
+        required=False,
+        label="Dubs available",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. Japanese, English"}),
+        help_text="Languages with a dub/audio track, comma-separated.",
+    )
+    subtitle_locales = forms.CharField(
+        required=False,
+        label="Subs available",
+        widget=forms.TextInput(
+            attrs={"placeholder": "e.g. English, Spanish (Latin America)"},
+        ),
+        help_text="Languages with subtitles, comma-separated.",
+    )
 
     class Meta(MediaForm.Meta):
         """Bind form to model."""
 
         model = Anime
+
+    def __init__(self, *args, **kwargs):
+        """Prefill the availability fields from the stored title-level row."""
+        super().__init__(*args, **kwargs)
+        # Display-only prefill; bound (submitted) forms ignore initial, so skip
+        # the query on save.
+        item_id = getattr(self.instance, "item_id", None)
+        if not self.is_bound and item_id:
+            availability = AnimeAvailability.objects.filter(item_id=item_id).first()
+            if availability:
+                self.initial["audio_locales"] = _codes_to_text(
+                    availability.audio_locales,
+                )
+                self.initial["subtitle_locales"] = _codes_to_text(
+                    availability.subtitle_locales,
+                )
+
+    def clean_audio_locales(self):
+        """Normalize the audio field to canonical locale codes."""
+        return _parse_locale_text(self.cleaned_data["audio_locales"])
+
+    def clean_subtitle_locales(self):
+        """Normalize the subtitle field to canonical locale codes."""
+        return _parse_locale_text(self.cleaned_data["subtitle_locales"])
+
+    def save(self, commit=True):  # noqa: FBT002
+        """Save the anime row, then upsert its availability when it changed."""
+        instance = super().save(commit=commit)
+        self._save_availability(instance)
+        return instance
+
+    def _save_availability(self, instance):
+        """Persist manual availability — but only when the user changed it.
+
+        A routine score/status save round-trips the prefilled values unchanged;
+        writing then would needlessly flip ``source`` to manual and stomp a
+        sync's ``updated_at``, so an unchanged submit is a no-op. An empty
+        submit on a title with no row creates nothing.
+        """
+        item_id = getattr(instance, "item_id", None)
+        if not item_id:
+            return
+
+        audio = self.cleaned_data.get("audio_locales", [])
+        subtitle = self.cleaned_data.get("subtitle_locales", [])
+
+        existing = AnimeAvailability.objects.filter(item_id=item_id).first()
+        existing_audio = existing.audio_locales if existing else []
+        existing_subtitle = existing.subtitle_locales if existing else []
+
+        if audio == existing_audio and subtitle == existing_subtitle:
+            return
+        if existing is None and not audio and not subtitle:
+            return
+
+        AnimeAvailability.objects.update_or_create(
+            item_id=item_id,
+            defaults={
+                "audio_locales": audio,
+                "subtitle_locales": subtitle,
+                "source": AvailabilitySource.MANUAL.value,
+            },
+        )
 
 
 class MovieForm(MediaForm):
