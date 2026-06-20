@@ -4,6 +4,7 @@ from django.urls import reverse
 
 from app.models import (
     Item,
+    ItemMetadata,
     MediaTypes,
     Movie,
     Sources,
@@ -95,6 +96,49 @@ class MediaListViewTests(TestCase):
         self.assertEqual(self.user.movie_status, Status.COMPLETED.value)
         self.assertEqual(self.user.movie_sort, "score")
         self.assertEqual(self.user.movie_layout, "table")
+
+    def test_media_list_e2_rating_filter(self):
+        """E2 rating filter narrows the list and is echoed back in context."""
+        response = self.client.get(
+            reverse("medialist", args=[self.user.username, MediaTypes.MOVIE.value])
+            + "?rating=4",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["list_filters"]["rating"], "4")
+        # Movies scored 4 and 5 qualify (score >= 4).
+        self.assertEqual(response.context["media_list"].paginator.count, 2)
+        # Rating is not persisted to user preferences (ephemeral query param).
+        self.user.refresh_from_db()
+        self.assertFalse(hasattr(self.user, "movie_rating"))
+
+    def test_media_list_e2_genre_year_dropdowns_and_filter(self):
+        """E2 genre/year dropdowns appear once metadata exists and the filter works."""
+        ItemMetadata.objects.create(
+            item=Item.objects.get(title="Test Movie 1"),
+            genres=["Drama"],
+            release_year=1999,
+        )
+        ItemMetadata.objects.create(
+            item=Item.objects.get(title="Test Movie 2"),
+            genres=["Action"],
+            release_year=2010,
+        )
+
+        response = self.client.get(
+            reverse("medialist", args=[self.user.username, MediaTypes.MOVIE.value])
+            + "?year=1999",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["media_list"].paginator.count, 1)
+
+        dropdown_vars = {f["var"] for f in response.context["dropdown_filters"]}
+        self.assertIn("rating", dropdown_vars)  # always present
+        self.assertIn("genre", dropdown_vars)
+        self.assertIn("year", dropdown_vars)
+        # No anime tracked here, so no language dropdown.
+        self.assertNotIn("language", dropdown_vars)
 
     def test_media_list_htmx_request(self):
         """Test the media list view with HTMX request."""

@@ -183,6 +183,14 @@ def media_list(request, username, media_type):
     if not status_filter:
         status_filter = MediaStatusChoices.ALL
 
+    # E2 list filters — ephemeral query params (not persisted to user prefs).
+    list_filters = {
+        "rating": request.GET.get("rating", ""),
+        "year": request.GET.get("year", ""),
+        "genre": request.GET.get("genre", ""),
+        "language": request.GET.get("language", ""),
+    }
+
     # Get media list with filters applied
     media_queryset = BasicMedia.objects.get_media_list(
         user=target_user,
@@ -190,6 +198,7 @@ def media_list(request, username, media_type):
         status_filter=status_filter,
         sort_filter=sort_filter,
         search=search_query,
+        filters=list_filters,
     )
 
     # Paginate results
@@ -202,6 +211,38 @@ def media_list(request, username, media_type):
         media_type,
     )
 
+    # E2 filter dropdowns for this user's library of this media type. Choices
+    # absent from the library are omitted (year/genre/language only appear once
+    # there's data to filter on; language is anime-only).
+    filter_options = BasicMedia.objects.get_filter_options(target_user, media_type)
+    rating_choices = (
+        [("", "Any rating")]
+        + [(str(n), str(n) if n == 10 else f"{n}+") for n in range(10, 0, -1)]  # noqa: PLR2004
+        + [("unrated", "Unrated")]
+    )
+    dropdown_filters = [
+        {"var": "rating", "placeholder": "Any rating", "choices": rating_choices},
+        {
+            "var": "year",
+            "placeholder": "Any year",
+            "choices": [("", "Any year")]
+            + [(str(y), str(y)) for y in filter_options["years"]],
+        },
+        {
+            "var": "genre",
+            "placeholder": "Any genre",
+            "choices": [("", "Any genre")]
+            + [(g, g) for g in filter_options["genres"]],
+        },
+        {
+            "var": "language",
+            "placeholder": "Any language",
+            "choices": [("", "Any language"), *filter_options["languages"]],
+        },
+    ]
+    # Hide a dropdown that has nothing to choose beyond the "Any" placeholder.
+    dropdown_filters = [f for f in dropdown_filters if len(f["choices"]) > 1]
+
     context = {
         "media_type": media_type,
         "media_type_plural": app_tags.media_type_readable_plural(media_type).lower(),
@@ -213,6 +254,8 @@ def media_list(request, username, media_type):
         "sort_choices": MediaSortChoices.choices,
         "status_choices": MediaStatusChoices.choices,
         "target_user": target_user,
+        "list_filters": list_filters,
+        "dropdown_filters": dropdown_filters,
     }
 
     # Handle HTMX requests for partial updates

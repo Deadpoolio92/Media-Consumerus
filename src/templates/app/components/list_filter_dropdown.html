@@ -1,0 +1,37 @@
+{% load static %}
+{% comment %}
+  E2 list-filter dropdown. Renders one filter (rating / year / genre / language)
+  bound to the shared Alpine `filters` object and `filterLabels` map defined in
+  media_list.html. Expects `filter` = {var, placeholder, choices:[(value,label)]}.
+{% endcomment %}
+<div class="relative" x-data="{ open: false }">
+  <button class="flex items-center px-4 py-2 bg-[#39404b] rounded-md hover:bg-[#454d5a] transition-colors cursor-pointer"
+          @click="open = !open"
+          type="button">
+    {% include "app/icons/funnel.svg" with classes="w-4 h-4 mr-2" %}
+    <span x-text="filterLabels['{{ filter.var }}'][filters['{{ filter.var }}']] || '{{ filter.placeholder|escapejs }}'"></span>
+    {% include "app/icons/chevron-down.svg" with classes="w-4 h-4 ml-2" %}
+  </button>
+
+  <div class="absolute z-10 mt-2 py-1 w-48 bg-[#39404b] rounded-md shadow-lg overflow-hidden border border-gray-700 max-h-72 overflow-y-auto"
+       x-cloak
+       x-show="open"
+       @click.outside="open = false"
+       x-transition:enter="transition ease-out duration-100"
+       x-transition:enter-start="transform opacity-0 scale-95"
+       x-transition:enter-end="transform opacity-100 scale-100"
+       x-transition:leave="transition ease-in duration-75"
+       x-transition:leave-start="transform opacity-100 scale-100"
+       x-transition:leave-end="transform opacity-0 scale-95">
+    {% for value, label in filter.choices %}
+      <button hx-get="{% url 'medialist' target_user.username media_type %}"
+              {% if media_list %} hx-target="{{ layout_class }}" {% else %} hx-target="#empty_list" {% endif %}
+              hx-include="#filter-form"
+              hx-indicator="#loading-indicator"
+              class="block w-full px-4 py-2 text-left text-sm transition-colors cursor-pointer"
+              :class="filters['{{ filter.var }}'] === '{{ value|escapejs }}' ? 'bg-indigo-600 text-white font-medium' : 'text-gray-300 hover:bg-[#454d5a] hover:text-white'"
+              @click="filters['{{ filter.var }}'] = '{{ value|escapejs }}'; open = false"
+              type="button">{{ label }}</button>
+    {% endfor %}
+  </div>
+</div>
