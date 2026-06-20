@@ -548,6 +548,12 @@
             <p class="text-xs text-gray-400">
               via {{ availability.get_source_display }} · updated {{ availability.updated_at|timesince }} ago
             </p>
+            {% mydublist_credit availability.source as credit %}
+            {% if credit %}
+              <p class="text-xs text-gray-500 mt-1">
+                <a href="https://mydublist.com" target="_blank" rel="noopener" class="hover:underline">{{ credit }}</a>
+              </p>
+            {% endif %}
           {% else %}
             <p class="text-gray-200">Not recorded</p>
           {% endif %}

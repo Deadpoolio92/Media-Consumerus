@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import requests
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -18,6 +19,7 @@ from app.models import (
     UserMessageLevel,
 )
 from app.tasks import (
+    apply_mydublist_locales,
     cleanup_user_messages,
     fetch_one_availability,
     sync_dub_availability,
@@ -190,6 +192,31 @@ class SyncDubAvailabilityTaskTests(TestCase):
         self.assertEqual(updated, 0)
         availability = AnimeAvailability.objects.get(item=self.anime)
         self.assertEqual(availability.source, AvailabilitySource.MANUAL.value)
+
+    def test_create_race_falls_back_to_update(self):
+        """CRITICAL: a concurrent create (on-add fetch vs. daily sync) doesn't raise.
+
+        Simulates the TOCTOU window in apply_mydublist_locales: the existence
+        check sees no row, but another worker inserts one before our create()
+        runs. The IntegrityError must be caught and the write retried as an
+        update against the now-existing row instead of propagating.
+        """
+        # The "other worker" wins the race and creates the row first.
+        AnimeAvailability.objects.create(
+            item=self.anime,
+            audio_locales=["fr-FR"],
+            source=AvailabilitySource.MANUAL.value,
+        )
+        with patch(
+            "app.tasks.AnimeAvailability.objects.create",
+            side_effect=IntegrityError,
+        ):
+            updated = apply_mydublist_locales(self.anime, ["ja-JP", "en-US"])
+
+        self.assertTrue(updated)
+        availability = AnimeAvailability.objects.get(item=self.anime)
+        self.assertEqual(availability.audio_locales, ["ja-JP", "en-US"])
+        self.assertEqual(availability.source, AvailabilitySource.MYDUBLIST.value)
 
     def test_fetch_failure_aborts_without_blanking(self):
         """A dataset-fetch failure returns 0 and leaves existing data intact."""
