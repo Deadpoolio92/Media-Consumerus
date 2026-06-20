@@ -8,6 +8,7 @@ from app.models import (
     AnimeAvailability,
     Episode,
     Item,
+    ItemMetadata,
     UserMessage,
 )
 
@@ -60,6 +61,20 @@ class AnimeAvailabilityAdmin(admin.ModelAdmin):
     list_select_related = ["item"]
 
 
+@admin.register(ItemMetadata)
+class ItemMetadataAdmin(admin.ModelAdmin):
+    """Custom admin for denormalized catalog facts (genre + year).
+
+    Explicit so it isn't swept into ``MediaAdmin`` (which expects
+    status/score/user fields this model doesn't have).
+    """
+
+    search_fields = ["item__title"]
+    list_display = ["__str__", "release_year", "updated_at"]
+    list_filter = ["release_year"]
+    list_select_related = ["item"]
+
+
 class MediaAdmin(admin.ModelAdmin):
     """Custom admin for regular media model with search and filter options."""
 
@@ -73,7 +88,14 @@ class MediaAdmin(admin.ModelAdmin):
 
 # Auto-register remaining models
 app_models = apps.get_app_config("app").get_models()
-SpecialModels = ["Item", "Episode", "BasicMedia", "UserMessage", "AnimeAvailability"]
+SpecialModels = [
+    "Item",
+    "Episode",
+    "BasicMedia",
+    "UserMessage",
+    "AnimeAvailability",
+    "ItemMetadata",
+]
 for model in app_models:
     if (
         not model.__name__.startswith("Historical")

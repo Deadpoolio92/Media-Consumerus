@@ -1,8 +1,10 @@
+import contextlib
 import logging
 import uuid
 
 from django.apps import apps
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.validators import (
     DecimalValidator,
     MaxValueValidator,
@@ -223,8 +225,25 @@ class MediaManager(models.Manager):
         """Return list of historical model names."""
         return [f"historical{media_type}" for media_type in MediaTypes.values]
 
-    def get_media_list(self, user, media_type, status_filter, sort_filter, search=None):
-        """Get media list based on filters, sorting and search."""
+    def get_media_list(
+        self,
+        user,
+        media_type,
+        status_filter,
+        sort_filter,
+        search=None,
+        filters=None,
+    ):
+        """Get media list based on filters, sorting and search.
+
+        ``filters`` (E2) is an optional dict of extra list filters: ``rating`` /
+        ``year`` are applied in SQL; ``genre`` / ``language`` are applied in
+        Python because their backing JSONField ``__contains`` lookup is
+        unsupported on SQLite (negligible cost at personal scale). When a Python
+        filter is active the return is a ``list`` instead of a queryset; both
+        paginate fine.
+        """
+        filters = filters or {}
         model = apps.get_model(app_label="app", model_name=media_type)
         queryset = model.objects.filter(user=user.id)
 
@@ -246,12 +265,134 @@ class MediaManager(models.Manager):
             ),
         ).filter(row_number=1)
 
+        # E2: rating + year in SQL, after the row_number=1 dedupe so they apply to
+        # the displayed (latest) tracking row.
+        queryset = self._apply_db_filters(queryset, filters)
+
         queryset = queryset.select_related("item")
         queryset = self._apply_prefetch_related(queryset, media_type)
 
         if sort_filter:
-            return self._sort_media_list(queryset, sort_filter, media_type)
+            queryset = self._sort_media_list(queryset, sort_filter, media_type)
+
+        # E2: genre + language in Python (JSONField __contains unsupported on SQLite).
+        return self._apply_python_filters(queryset, filters)
+
+    @staticmethod
+    def _apply_db_filters(queryset, filters):
+        """Apply E2 rating + year filters in SQL (plain fields, all DB engines)."""
+        rating = filters.get("rating")
+        if rating == "unrated":
+            queryset = queryset.filter(score__isnull=True)
+        elif rating:
+            # int() rejects a non-numeric param ("all"/garbage) → no rating filter.
+            with contextlib.suppress(TypeError, ValueError):
+                queryset = queryset.filter(score__gte=int(rating))
+
+        year = filters.get("year")
+        if year:
+            with contextlib.suppress(TypeError, ValueError):
+                queryset = queryset.filter(
+                    item__catalog_metadata__release_year=int(year),
+                )
+
         return queryset
+
+    def _apply_python_filters(self, queryset, filters):
+        """Apply E2 genre + language filters in Python.
+
+        Returns the queryset untouched when neither is set (so callers like
+        ``get_home_status`` and existing tests keep a lazy queryset); otherwise
+        materializes the (already sorted) queryset and returns a filtered list.
+        """
+        genre = filters.get("genre")
+        language = filters.get("language")
+        if not genre and not language:
+            return queryset
+
+        if genre:
+            queryset = queryset.select_related("item__catalog_metadata")
+        if language:
+            queryset = queryset.select_related("item__availability")
+
+        return [
+            media
+            for media in queryset
+            if (not genre or genre in self._item_genres(media.item))
+            and (not language or language in self._item_locales(media.item))
+        ]
+
+    @staticmethod
+    def _item_genres(item):
+        """Return an item's denormalized genres, or ``[]`` if none recorded."""
+        try:
+            return item.catalog_metadata.genres or []
+        except ObjectDoesNotExist:
+            return []
+
+    @staticmethod
+    def _item_locales(item):
+        """Return an anime item's audio + subtitle locale codes, or ``[]``."""
+        try:
+            availability = item.availability
+        except ObjectDoesNotExist:
+            return []
+        return (availability.audio_locales or []) + (
+            availability.subtitle_locales or []
+        )
+
+    def get_filter_options(self, user, media_type):
+        """Return E2 filter choices for a user's library of one media type.
+
+        Genres + years come from the denormalized ``ItemMetadata`` of the items
+        the user tracks; languages (anime only) from ``AnimeAvailability``,
+        labelled + ordered via ``app.languages``.
+        """
+        from app import languages  # noqa: PLC0415 — avoid import-order coupling
+
+        model = apps.get_model(app_label="app", model_name=media_type)
+        item_ids = model.objects.filter(user=user.id).values_list(
+            "item_id",
+            flat=True,
+        )
+        metadata_qs = ItemMetadata.objects.filter(item_id__in=item_ids)
+
+        genres = set()
+        for genre_list in metadata_qs.values_list("genres", flat=True):
+            genres.update(genre_list or [])
+
+        years = (
+            metadata_qs.exclude(release_year__isnull=True)
+            .values_list("release_year", flat=True)
+            .distinct()
+        )
+
+        language_choices = []
+        if media_type == MediaTypes.ANIME.value:
+            codes = set()
+            availability_qs = AnimeAvailability.objects.filter(item_id__in=item_ids)
+            for audio, subtitle in availability_qs.values_list(
+                "audio_locales",
+                "subtitle_locales",
+            ):
+                codes.update(audio or [])
+                codes.update(subtitle or [])
+            # Canonical LOCALE_DISPLAY order first, then any unmapped codes.
+            language_choices = [
+                (code, languages.display_name(code))
+                for code in languages.LOCALE_DISPLAY
+                if code in codes
+            ]
+            language_choices += [
+                (code, code)
+                for code in sorted(codes - set(languages.LOCALE_DISPLAY))
+            ]
+
+        return {
+            "genres": sorted(genres),
+            "years": sorted(years, reverse=True),
+            "languages": language_choices,
+        }
 
     def _apply_prefetch_related(self, queryset, media_type):
         """Apply appropriate prefetch_related based on media type."""
@@ -1930,6 +2071,44 @@ class AnimeAvailability(models.Model):
 
     def __str__(self):
         """Return the title this availability belongs to."""
+        return self.item.__str__()
+
+
+class ItemMetadata(models.Model):
+    """Denormalized, filterable catalog facts for an ``Item`` (genre + year).
+
+    Genre and release year live only in live provider metadata (TMDB/MAL/IGDB),
+    never in the relational DB — so the list view (which never fetches per-item
+    metadata) can't filter on them. This caches them, populated from the catalog
+    provider by ``app.tasks`` (on-add signal + daily ``sync_catalog_metadata``,
+    the latter doubling as the backfill).
+
+    Title-level (shared across users / rewatch rows), so it hangs off ``Item``
+    via OneToOne — same pattern as ``AnimeAvailability`` — leaving the
+    heavily-constrained upstream ``Item`` untouched.
+
+    Provenance is always the catalog provider (no manual entry), so there's no
+    ``source`` field; ``genres`` are display name strings as returned by the
+    provider, and ``release_year`` is the leading 4-digit year of the item's
+    own release/air/start date (``None`` when the provider has no date).
+    """
+
+    item = models.OneToOneField(
+        Item,
+        on_delete=models.CASCADE,
+        related_name="catalog_metadata",
+    )
+    genres = models.JSONField(default=list, blank=True)
+    release_year = models.PositiveIntegerField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        """Meta options for the model."""
+
+        verbose_name_plural = "item metadata"
+
+    def __str__(self):
+        """Return the title this metadata belongs to."""
         return self.item.__str__()
 
 

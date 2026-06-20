@@ -7,8 +7,8 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django_celery_results.models import TaskResult
 
-from app.models import Anime
-from app.tasks import fetch_one_availability
+from app.models import TV, Anime, Game, Movie, Season
+from app.tasks import fetch_one_availability, fetch_one_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,30 @@ def enqueue_availability_fetch(sender, instance, created, **kwargs):  # noqa: AR
     except Exception:  # enqueue must never block the track-anime flow
         logger.exception(
             "Could not enqueue availability fetch for item %s",
+            instance.item_id,
+        )
+
+
+@receiver(post_save, sender=Movie)
+@receiver(post_save, sender=TV)
+@receiver(post_save, sender=Season)
+@receiver(post_save, sender=Anime)
+@receiver(post_save, sender=Game)
+def enqueue_metadata_fetch(sender, instance, created, **kwargs):  # noqa: ARG001
+    """Enqueue a best-effort genre/year fetch when a filterable item is tracked (E2).
+
+    Fires on create only (not status/score edits). Does NO network I/O itself — it
+    just enqueues ``fetch_one_metadata`` — so tracking returns instantly, and the
+    item shows up in genre/year filters seconds later. The enqueue is wrapped so a
+    broker hiccup can never break the track flow.
+    """
+    if not created:
+        return
+    try:
+        fetch_one_metadata.delay(instance.item_id)
+    except Exception:  # enqueue must never block the track flow
+        logger.exception(
+            "Could not enqueue metadata fetch for item %s",
             instance.item_id,
         )
 

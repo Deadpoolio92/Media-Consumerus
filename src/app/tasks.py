@@ -7,15 +7,18 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.utils import timezone
 
+from app import metadata_fields
 from app.models import (
     AnimeAvailability,
     AvailabilitySource,
     Item,
+    ItemMetadata,
     MediaTypes,
     Sources,
     UserMessage,
 )
 from app.providers import mydublist
+from app.providers.services import ProviderAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -131,3 +134,105 @@ def fetch_one_availability(item_id):
     if locales is None:
         return False  # not covered — never blank
     return apply_mydublist_locales(item, locales)
+
+
+# Catalog facts (genre + year) denormalized into ``ItemMetadata`` so the list
+# view can filter on them (E2). Errors anywhere here are best-effort: a missing
+# row just means that item is absent from genre/year filters until the next sync.
+_METADATA_FETCH_ERRORS = (
+    requests.exceptions.RequestException,
+    ProviderAPIError,
+    ValueError,
+    KeyError,
+)
+
+
+def apply_catalog_metadata(item, fields):
+    """Upsert one item's denormalized genre + year; return ``True`` if written.
+
+    Idempotent: an identical re-fetch is skipped (returns ``False``) so the daily
+    sync doesn't churn ``updated_at``. The ``create`` path guards the OneToOne
+    insert race between the on-add signal and the daily sync, mirroring
+    ``apply_mydublist_locales``.
+    """
+    genres = fields["genres"]
+    release_year = fields["release_year"]
+
+    metadata = ItemMetadata.objects.filter(item=item).first()
+    if metadata is None:
+        try:
+            ItemMetadata.objects.create(
+                item=item,
+                genres=genres,
+                release_year=release_year,
+            )
+        except IntegrityError:
+            metadata = ItemMetadata.objects.get(item=item)
+        else:
+            return True
+    if metadata.genres == genres and metadata.release_year == release_year:
+        return False
+    metadata.genres = genres
+    metadata.release_year = release_year
+    metadata.save(update_fields=["genres", "release_year", "updated_at"])
+    return True
+
+
+@shared_task(name="Sync catalog metadata")
+def sync_catalog_metadata():
+    """Daily: refresh denormalized genre + year for filterable items (E2).
+
+    Iterates every tracked filterable ``Item`` (movie/tv/season/anime/game) and
+    upserts its genre + year from the catalog provider. Doubles as the backfill
+    for items added before E2. Per-item fetch failures are logged and skipped so
+    one bad title can't abort the run.
+
+    Returns the number of rows written.
+    """
+    items = Item.objects.filter(
+        media_type__in=metadata_fields.FILTERABLE_MEDIA_TYPES,
+    )
+    total = 0
+    updated = 0
+    for item in items.iterator():
+        total += 1
+        try:
+            fields = metadata_fields.fetch_for_item(item)
+        except _METADATA_FETCH_ERRORS:
+            logger.exception("Catalog metadata sync: fetch failed for %s", item)
+            continue
+        if fields is None:
+            continue
+        if apply_catalog_metadata(item, fields):
+            updated += 1
+
+    logger.info("Catalog metadata sync: updated %s of %s items.", updated, total)
+    return updated
+
+
+@shared_task(name="Fetch one item metadata")
+def fetch_one_metadata(item_id):
+    """Best-effort: populate one item's genre + year on add (E2).
+
+    Enqueued by the ``post_save`` signal on filterable media models. Reuses the
+    metadata the track flow just cached, so genre/year show up in filters right
+    after add instead of waiting for the daily sync. Every failure (item gone,
+    network, parse, no data) is logged and swallowed — it MUST NOT raise into /
+    block the track flow.
+
+    Returns ``True`` if a row was written, else ``False``.
+    """
+    item = Item.objects.filter(pk=item_id).first()
+    if item is None:
+        logger.warning("fetch_one_metadata: item %s no longer exists", item_id)
+        return False
+
+    try:
+        fields = metadata_fields.fetch_for_item(item)
+    except _METADATA_FETCH_ERRORS:
+        logger.exception("fetch_one_metadata: fetch failed for item %s", item_id)
+        return False
+
+    if fields is None:
+        return False
+    return apply_catalog_metadata(item, fields)

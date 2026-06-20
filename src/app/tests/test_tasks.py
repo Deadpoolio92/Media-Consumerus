@@ -12,16 +12,22 @@ from app.models import (
     AnimeAvailability,
     AvailabilitySource,
     Item,
+    ItemMetadata,
     MediaTypes,
+    Movie,
     Sources,
     Status,
     UserMessage,
     UserMessageLevel,
 )
+from app.providers.services import ProviderAPIError
 from app.tasks import (
+    apply_catalog_metadata,
     apply_mydublist_locales,
     cleanup_user_messages,
     fetch_one_availability,
+    fetch_one_metadata,
+    sync_catalog_metadata,
     sync_dub_availability,
 )
 
@@ -365,3 +371,251 @@ class AnimeOnAddSignalTests(TestCase):
             anime.save()
 
         mock_get.assert_not_called()
+
+
+class SyncCatalogMetadataTaskTests(TestCase):
+    """Test the daily denormalized genre/year sync (E2, library-bounded)."""
+
+    def setUp(self):
+        """Create a filterable movie plus an out-of-scope book."""
+        self.movie = Item.objects.create(
+            media_id="550",
+            source=Sources.TMDB.value,
+            media_type=MediaTypes.MOVIE.value,
+            title="Fight Club",
+            image="http://example.com/550.jpg",
+        )
+        # Out of scope: books don't get a genre/year filter.
+        self.book = Item.objects.create(
+            media_id="OL1M",
+            source=Sources.OPENLIBRARY.value,
+            media_type=MediaTypes.BOOK.value,
+            title="Dune",
+            image="http://example.com/dune.jpg",
+        )
+
+    def test_covered_item_upserts_genres_and_year_and_respects_scope(self):
+        """A filterable item gets genre+year; out-of-scope types never do."""
+        with patch(
+            "app.tasks.metadata_fields.fetch_for_item",
+            return_value={"genres": ["Drama"], "release_year": 1999},
+        ):
+            updated = sync_catalog_metadata()
+
+        self.assertEqual(updated, 1)
+        metadata = ItemMetadata.objects.get(item=self.movie)
+        self.assertEqual(metadata.genres, ["Drama"])
+        self.assertEqual(metadata.release_year, 1999)
+        self.assertFalse(ItemMetadata.objects.filter(item=self.book).exists())
+
+    def test_equal_data_is_a_noop(self):
+        """Unchanged genre+year doesn't bump updated_at (idempotent daily run)."""
+        ItemMetadata.objects.create(
+            item=self.movie,
+            genres=["Drama"],
+            release_year=1999,
+        )
+        old = timezone.now() - timedelta(days=2)
+        ItemMetadata.objects.filter(item=self.movie).update(updated_at=old)
+
+        with patch(
+            "app.tasks.metadata_fields.fetch_for_item",
+            return_value={"genres": ["Drama"], "release_year": 1999},
+        ):
+            updated = sync_catalog_metadata()
+
+        self.assertEqual(updated, 0)
+        self.assertEqual(ItemMetadata.objects.get(item=self.movie).updated_at, old)
+
+    def test_per_item_fetch_failure_is_skipped(self):
+        """One bad title is logged + skipped; the run still writes the good one."""
+        good = Item.objects.create(
+            media_id="603",
+            source=Sources.TMDB.value,
+            media_type=MediaTypes.MOVIE.value,
+            title="The Matrix",
+            image="http://example.com/603.jpg",
+        )
+
+        def fake_fetch(item):
+            if item.media_id == "550":
+                raise ProviderAPIError(Sources.TMDB.value, Exception("boom"))
+            return {"genres": ["Sci-Fi"], "release_year": 1999}
+
+        with patch(
+            "app.tasks.metadata_fields.fetch_for_item",
+            side_effect=fake_fetch,
+        ):
+            updated = sync_catalog_metadata()
+
+        self.assertEqual(updated, 1)
+        self.assertFalse(ItemMetadata.objects.filter(item=self.movie).exists())
+        self.assertTrue(ItemMetadata.objects.filter(item=good).exists())
+
+    def test_none_result_writes_nothing(self):
+        """A provider miss (no genre + no year) writes no row."""
+        with patch(
+            "app.tasks.metadata_fields.fetch_for_item",
+            return_value=None,
+        ):
+            updated = sync_catalog_metadata()
+
+        self.assertEqual(updated, 0)
+        self.assertFalse(ItemMetadata.objects.filter(item=self.movie).exists())
+
+    def test_create_race_falls_back_to_update(self):
+        """A concurrent create (on-add vs. daily sync) is caught and retried."""
+        ItemMetadata.objects.create(
+            item=self.movie,
+            genres=["Old"],
+            release_year=1990,
+        )
+        with patch(
+            "app.tasks.ItemMetadata.objects.create",
+            side_effect=IntegrityError,
+        ):
+            wrote = apply_catalog_metadata(
+                self.movie,
+                {"genres": ["Drama"], "release_year": 1999},
+            )
+
+        self.assertTrue(wrote)
+        metadata = ItemMetadata.objects.get(item=self.movie)
+        self.assertEqual(metadata.genres, ["Drama"])
+        self.assertEqual(metadata.release_year, 1999)
+
+
+class FetchOneMetadataTaskTests(TestCase):
+    """Test the on-add best-effort single-item genre/year fetch (E2)."""
+
+    def setUp(self):
+        """Create the movie Item the fetch targets."""
+        self.item = Item.objects.create(
+            media_id="550",
+            source=Sources.TMDB.value,
+            media_type=MediaTypes.MOVIE.value,
+            title="Fight Club",
+            image="http://example.com/550.jpg",
+        )
+
+    def test_covered_item_writes_row(self):
+        """A covered item gets a genre+year row."""
+        with patch(
+            "app.tasks.metadata_fields.fetch_for_item",
+            return_value={"genres": ["Drama"], "release_year": 1999},
+        ):
+            wrote = fetch_one_metadata(self.item.id)
+
+        self.assertTrue(wrote)
+        metadata = ItemMetadata.objects.get(item=self.item)
+        self.assertEqual(metadata.genres, ["Drama"])
+        self.assertEqual(metadata.release_year, 1999)
+
+    def test_no_data_writes_nothing(self):
+        """A provider miss writes no row."""
+        with patch(
+            "app.tasks.metadata_fields.fetch_for_item",
+            return_value=None,
+        ):
+            wrote = fetch_one_metadata(self.item.id)
+
+        self.assertFalse(wrote)
+        self.assertFalse(ItemMetadata.objects.filter(item=self.item).exists())
+
+    def test_missing_item_is_safe(self):
+        """A deleted item id returns False without fetching."""
+        with patch("app.tasks.metadata_fields.fetch_for_item") as mock_fetch:
+            wrote = fetch_one_metadata(999999)
+
+        self.assertFalse(wrote)
+        mock_fetch.assert_not_called()
+
+    def test_fetch_error_is_swallowed(self):
+        """A provider error is logged + swallowed (returns False, no raise)."""
+        with patch(
+            "app.tasks.metadata_fields.fetch_for_item",
+            side_effect=requests.exceptions.ConnectionError,
+        ):
+            wrote = fetch_one_metadata(self.item.id)
+
+        self.assertFalse(wrote)
+        self.assertFalse(ItemMetadata.objects.filter(item=self.item).exists())
+
+
+class MetadataOnAddSignalTests(TestCase):
+    """Test post_save -> genre/year fetch enqueue on filterable media (E2)."""
+
+    def setUp(self):
+        """Create a user and a movie Item."""
+        self.user = get_user_model().objects.create_user(username="test")
+        self.item = Item.objects.create(
+            media_id="550",
+            source=Sources.TMDB.value,
+            media_type=MediaTypes.MOVIE.value,
+            title="Fight Club",
+            image="http://example.com/550.jpg",
+        )
+
+    def test_new_media_populates_metadata(self):
+        """Tracking a new movie fills its genre/year via the signal."""
+        with patch(
+            "app.tasks.metadata_fields.fetch_for_item",
+            return_value={"genres": ["Drama"], "release_year": 1999},
+        ):
+            Movie.objects.create(
+                item=self.item,
+                user=self.user,
+                status=Status.PLANNING.value,
+            )
+
+        metadata = ItemMetadata.objects.get(item=self.item)
+        self.assertEqual(metadata.genres, ["Drama"])
+        self.assertEqual(metadata.release_year, 1999)
+
+    def test_add_succeeds_when_fetch_fails(self):
+        """CRITICAL: a provider failure must NOT block tracking the item."""
+        with patch(
+            "app.tasks.metadata_fields.fetch_for_item",
+            side_effect=requests.exceptions.ConnectionError,
+        ):
+            movie = Movie.objects.create(
+                item=self.item,
+                user=self.user,
+                status=Status.PLANNING.value,
+            )
+
+        self.assertTrue(Movie.objects.filter(pk=movie.pk).exists())
+        self.assertFalse(ItemMetadata.objects.filter(item=self.item).exists())
+
+    def test_broker_failure_on_enqueue_does_not_block_track(self):
+        """CRITICAL: if .delay() raises (broker down), tracking still succeeds."""
+        with patch(
+            "app.tasks.fetch_one_metadata.delay",
+            side_effect=Exception("broker down"),
+        ):
+            movie = Movie.objects.create(
+                item=self.item,
+                user=self.user,
+                status=Status.PLANNING.value,
+            )
+
+        self.assertTrue(Movie.objects.filter(pk=movie.pk).exists())
+        self.assertFalse(ItemMetadata.objects.filter(item=self.item).exists())
+
+    def test_edit_does_not_refetch(self):
+        """Only a NEW media row triggers a fetch; later edits don't re-enqueue."""
+        with patch(
+            "app.tasks.metadata_fields.fetch_for_item",
+            return_value={"genres": ["Drama"], "release_year": 1999},
+        ):
+            movie = Movie.objects.create(
+                item=self.item,
+                user=self.user,
+                status=Status.PLANNING.value,
+            )
+
+        with patch("app.tasks.metadata_fields.fetch_for_item") as mock_fetch:
+            movie.notes = "edited"
+            movie.save()
+
+        mock_fetch.assert_not_called()
