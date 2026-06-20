@@ -41,3 +41,43 @@ class AnimeAvailabilityModel(TestCase):
         AnimeAvailability.objects.create(item=self.item)
         self.item.delete()
         self.assertFalse(AnimeAvailability.objects.exists())
+
+
+class AnimeAvailabilityQueryabilityTests(TestCase):
+    """E2-readiness: stored locale codes are queryable for the language filter."""
+
+    def test_audio_locales_round_trip_as_list_and_filterable(self):
+        """Codes persist as a real list and are matchable (SQLite-safe).
+
+        E2's real filter is
+        ``filter(item__availability__audio_locales__contains=["en-US"])`` on
+        Postgres, but JSONField ``__contains`` is unsupported on the SQLite test
+        DB (see planning/TODOS.md). This asserts the storage guarantee E1 makes:
+        codes survive a DB round-trip as a list and can be matched.
+        """
+        dubbed = Item.objects.create(
+            media_id="1",
+            source=Sources.MAL.value,
+            media_type=MediaTypes.ANIME.value,
+            title="Dubbed",
+            image="http://example.com/1.jpg",
+        )
+        subbed_only = Item.objects.create(
+            media_id="2",
+            source=Sources.MAL.value,
+            media_type=MediaTypes.ANIME.value,
+            title="Sub only",
+            image="http://example.com/2.jpg",
+        )
+        AnimeAvailability.objects.create(item=dubbed, audio_locales=["ja-JP", "en-US"])
+        AnimeAvailability.objects.create(item=subbed_only, audio_locales=["ja-JP"])
+
+        stored = AnimeAvailability.objects.get(item=dubbed)
+        self.assertEqual(stored.audio_locales, ["ja-JP", "en-US"])  # a list, not str
+
+        english_dubs = [
+            row.item_id
+            for row in AnimeAvailability.objects.all()
+            if "en-US" in row.audio_locales
+        ]
+        self.assertEqual(english_dubs, [dubbed.id])

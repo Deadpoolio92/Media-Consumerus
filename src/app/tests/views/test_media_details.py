@@ -324,3 +324,47 @@ class MediaDetailsViewTests(TestCase):
         self.assertContains(response, "Japanese")
         self.assertContains(response, "English")
         self.assertContains(response, "MyDubList")
+        # CC BY 4.0 attribution must show for MyDubList-sourced data.
+        self.assertContains(response, "CC BY 4.0")
+        self.assertContains(response, "https://mydublist.com")
+
+    @patch("app.providers.services.get_media_metadata")
+    def test_manual_availability_shows_no_mydublist_credit(self, mock_get_metadata):
+        """A manual-source row renders no MyDubList CC BY attribution line."""
+        mock_get_metadata.return_value = {
+            "media_id": "1",
+            "title": "Test Anime",
+            "media_type": MediaTypes.ANIME.value,
+            "source": Sources.MAL.value,
+            "image": "http://example.com/image.jpg",
+        }
+
+        item = Item.objects.create(
+            media_id="1",
+            source=Sources.MAL.value,
+            media_type=MediaTypes.ANIME.value,
+            title="Test Anime",
+            image="http://example.com/image.jpg",
+        )
+        AnimeAvailability.objects.create(
+            item=item,
+            audio_locales=["ja-JP"],
+            subtitle_locales=[],
+            source=AvailabilitySource.MANUAL.value,
+        )
+
+        response = self.client.get(
+            reverse(
+                "media_details",
+                kwargs={
+                    "source": Sources.MAL.value,
+                    "media_type": MediaTypes.ANIME.value,
+                    "media_id": "1",
+                    "title": "test-anime",
+                },
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Japanese")
+        self.assertNotContains(response, "CC BY 4.0")
