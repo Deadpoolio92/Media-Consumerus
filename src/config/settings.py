@@ -580,6 +580,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "Sync dub availability",
         "schedule": crontab(hour=4, minute=0),  # daily, off-peak
     },
+    "sync_catalog_metadata": {
+        "task": "Sync catalog metadata",
+        "schedule": crontab(hour=4, minute=30),  # daily, off-peak (E2 genre/year)
+    },
 }
 
 IS_PROD = not any(cmd in sys.argv for cmd in ("runserver", "test"))

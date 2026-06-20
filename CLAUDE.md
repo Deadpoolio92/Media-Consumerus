@@ -34,7 +34,7 @@ branch `dev`; `upstream` = `FuzzyGrim/Yamtrack`, push-disabled). The planning do
 old scratch repo now live here in [planning/](planning/). Yamtrack's own files (`src/`,
 `docs/`, `README.md`, `LICENSE`, `docker-compose*.yml`) are upstream's — leave them
 untouched (see Fork strategy). No enhancement code written yet, but stock Yamtrack now runs
-locally at http://localhost:8000.
+locally at <http://localhost:8000>.
 
 **Local run (merge-safe).** Config lives in a git-ignored `docker-compose.override.yml`
 (via `.git/info/exclude`, so it never touches the tracked compose file). It builds from the
@@ -61,10 +61,11 @@ The pivot is locked (fork Yamtrack, stay merge-able, private). Stock Yamtrack ru
 Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 → polish → E8.**
 
 **Done / planned:**
+
 - **E3 (hide unused media types) — RESOLVED config-only (2026-06-18).** Upstream already ships
   per-user `{type}_enabled` flags + a Preferences UI honored across nav/search/calendar/stats.
   No code needed: untick manga/comic/book/boardgame in Preferences. (See decision-log.)
-- **E1 (dub/sub) — ✅ COMPLETE (all T1–T7 done 2026-06-20). Next epic: E2 (list filters).** Full spec:
+- **E1 (dub/sub) — ✅ COMPLETE (all T1–T7 done 2026-06-20).** Full spec:
   **[planning/E1-dub-sub-plan.md](planning/E1-dub-sub-plan.md)** (per-task DONE notes recorded
   there). Scope is *availability* tracking: `AnimeAvailability` model (OneToOne→`Item`, JSON
   locale-code lists), manual entry + **MyDubList** auto-fill (daily Celery task + async
@@ -94,21 +95,39 @@ Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 �
     [codes]}` (11,847 titles @ high). **CC BY 4.0 requires the `mydublist.ATTRIBUTION` credit
     line in the badge UI** (TODO, fold into T5/T6).
   - **E1 fully shipped (T1–T7).** Availability tracking is end-to-end: model + manual entry
-    + MyDubList auto-fill (daily Celery beat + best-effort on-add signal) + badge with CC BY
-    credit, all tested (87 on the E1 surface; provider tests fully offline). Not yet
-    committed (awaiting maintainer's go-ahead) and not yet exercised against a live
+    - MyDubList auto-fill (daily Celery beat + best-effort on-add signal) + badge with CC BY
+    credit, all tested (87 on the E1 surface; provider tests fully offline). E1 fully shipped and merged, but not yet exercised against a live
     Celery worker / Postgres (only the pytest SQLite suite + a live MyDubList fetch smoke
     test). Daily beat runs `crontab(hour=4)`; tune `MYDUBLIST_CONFIDENCE` if coverage feels
     thin.
-  - **Next per build order (E3→E1→E2→E10→E9→polish→E8): E2 (list filters: rating /
-    language / genre / year).** The dub/sub language filter is the E1 tie-in — fields are
-    stored as canonical codes and queryable; ⚠️ mind the JSONField `__contains` SQLite
-    caveat (see [TODOS.md](planning/TODOS.md)). **E10 (v1 personal-data import) is also
-    unblocked** (T1–T3) and could come first if preferred.
+- **E2 (list filters) — ✅ COMPLETE (all T1–T6 done 2026-06-20). Next epic: E10 (v1 import).**
+  Full spec + per-task DONE notes: **[planning/E2-list-filters-plan.md](planning/E2-list-filters-plan.md)**.
+  Adds rating / language / genre / year filters to the per-type list view.
+  - **Key finding (baked into the plan):** genre + year are NOT in the DB (only in live
+    provider metadata). Maintainer chose to **denormalize** them: NEW `ItemMetadata`
+    (OneToOne→`Item`, a sibling of `AnimeAvailability`; migration `0063`), populated from the
+    catalog provider via `app/metadata_fields.py` + `tasks.py`
+    (`fetch_one_metadata` on-add signal on Movie/TV/Season/Anime/Game +
+    `sync_catalog_metadata` daily beat `crontab(4:30)`, which doubles as the backfill).
+  - **Filters:** rating (`score__gte`/unrated) + year (`release_year`) in SQL;
+    genre + language **in Python** (`_apply_python_filters`) to dodge the JSONField
+    `__contains` SQLite caveat — so the whole suite stays green on SQLite. Choices via
+    `MediaManager.get_filter_options`; language is anime-only (reads E1's `AnimeAvailability`,
+    labelled via `app/languages.py`) and hidden until data exists. Filters are **ephemeral
+    query params** (no User-model migration). UI: NEW `templates/app/components/
+    list_filter_dropdown.html` + Alpine wiring in `media_list.html`.
+  - **Tested:** 86 on the E2 surface (NEW `test_metadata_fields.py`,
+    `test_media_manager_filters.py`; +classes in `test_tasks.py`; +2 view tests). `ruff`
+    clean on E2 files; `djlint` clean on both templates; `makemigrations --check` clean.
+    Not yet committed (awaiting go-ahead); not yet run against a live Celery worker / Postgres
+    (SQLite pytest only). **Run `sync_catalog_metadata` once after deploy to backfill** existing
+    items' genre/year. (Pre-existing/env-only suite fails: `test_integration.py` allauth
+    client-IP, `test_metadata::test_book` live network — both unmodified by E2.)
+  - **Next per build order (E3→E1→E2→E10→E9→polish→E8): E10 (v1 personal-data import).** E1's
+    T1–T3 *and* E2's `ItemMetadata` both land into a real, filterable library now.
   - **Dev env:** local `uv` venv is set up (`uv sync --group test`); run Django/pytest via
     `uv run` from `src/` with `DJANGO_SETTINGS_MODULE=config.test_settings` (SQLite). Docker
-    Desktop was not running this session. E2 gotcha captured in
-    [TODOS.md](planning/TODOS.md) (JSONField `__contains` unsupported on SQLite).
+    Desktop was not running this session.
 
 **Backlog + sequence:** [planning/BACKLOG.md](planning/BACKLOG.md). v1 (Google Sheet + Apps
 Script) lives at `../Media Tracker v1` — source for the E10 personal-data import (transform

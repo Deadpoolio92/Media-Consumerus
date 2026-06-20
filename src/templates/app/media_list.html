@@ -13,7 +13,18 @@
     {{ media_type|media_type_readable_plural }}
   </h1>
 
-  <div x-data="{ sort: '{{ current_sort }}', status: '{{ current_status }}', layout: '{{ current_layout }}', search: '{{ request.GET.search|default:'' }}', statusLabels: {
+  <div x-data="{ sort: '{{ current_sort }}', status: '{{ current_status }}', layout: '{{ current_layout }}', search: '{{ request.GET.search|default:'' }}', filters: {
+    rating: '{{ list_filters.rating|escapejs }}',
+    year: '{{ list_filters.year|escapejs }}',
+    genre: '{{ list_filters.genre|escapejs }}',
+    language: '{{ list_filters.language|escapejs }}'
+    }, filterLabels: {
+    {% for f in dropdown_filters %}
+      '{{ f.var }}': {
+      {% for value, label in f.choices %}'{{ value|escapejs }}': '{{ label|escapejs }}'{% if not forloop.last %},{% endif %}{% endfor %}
+      }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+    }, statusLabels: {
     {% for value, label in status_choices %}
       '{{ value }}': '{{ label }}'
       {% if not forloop.last %},{% endif %}
@@ -33,6 +44,10 @@
       <input type="hidden" name="status" x-model="status">
       <input type="hidden" name="search" x-model="search">
       <input type="hidden" name="layout" x-model="layout">
+      <input type="hidden" name="rating" x-model="filters.rating">
+      <input type="hidden" name="year" x-model="filters.year">
+      <input type="hidden" name="genre" x-model="filters.genre">
+      <input type="hidden" name="language" x-model="filters.language">
     </form>
 
     <div class="flex flex-col md:flex-row gap-4 mb-6">
@@ -121,14 +136,19 @@
           </div>
         </div>
 
+        <!-- E2 filters: rating / year / genre / language -->
+        {% for filter in dropdown_filters %}
+          {% include "app/components/list_filter_dropdown.html" %}
+        {% endfor %}
+
         <!-- Layout Toggle -->
         <div class="flex rounded-md overflow-hidden border border-gray-700">
-          <a :href="`{% url 'medialist' target_user.username media_type %}?${search ? 'search=' + search + '&' : ''}${status !== 'all' ? 'status=' + status + '&' : ''}${sort !== 'score' ? 'sort=' + sort + '&' : ''}layout=grid`"
+          <a :href="`{% url 'medialist' target_user.username media_type %}?${search ? 'search=' + search + '&' : ''}${status !== 'all' ? 'status=' + status + '&' : ''}${sort !== 'score' ? 'sort=' + sort + '&' : ''}${filters.rating ? 'rating=' + filters.rating + '&' : ''}${filters.year ? 'year=' + filters.year + '&' : ''}${filters.genre ? 'genre=' + encodeURIComponent(filters.genre) + '&' : ''}${filters.language ? 'language=' + filters.language + '&' : ''}layout=grid`"
              class="p-2 cursor-pointer"
              :class="layout === 'grid' ? 'bg-indigo-600 text-white' : 'bg-[#39404b] hover:bg-[#454d5a]'"
              title="Grid View"
              @click="layout = 'grid'">{% include "app/icons/four-square.svg" with classes="w-5 h-5" %}</a>
-          <a :href="`{% url 'medialist' target_user.username media_type %}?${search ? 'search=' + search + '&' : ''}${status !== 'all' ? 'status=' + status + '&' : ''}${sort !== 'score' ? 'sort=' + sort + '&' : ''}layout=table`"
+          <a :href="`{% url 'medialist' target_user.username media_type %}?${search ? 'search=' + search + '&' : ''}${status !== 'all' ? 'status=' + status + '&' : ''}${sort !== 'score' ? 'sort=' + sort + '&' : ''}${filters.rating ? 'rating=' + filters.rating + '&' : ''}${filters.year ? 'year=' + filters.year + '&' : ''}${filters.genre ? 'genre=' + encodeURIComponent(filters.genre) + '&' : ''}${filters.language ? 'language=' + filters.language + '&' : ''}layout=table`"
              class="p-2 cursor-pointer"
              :class="layout === 'table' ? 'bg-indigo-600 text-white' : 'bg-[#39404b] hover:bg-[#454d5a]'"
              title="Table View"
