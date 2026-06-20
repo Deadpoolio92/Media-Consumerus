@@ -64,7 +64,7 @@ Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 �
 - **E3 (hide unused media types) — RESOLVED config-only (2026-06-18).** Upstream already ships
   per-user `{type}_enabled` flags + a Preferences UI honored across nav/search/calendar/stats.
   No code needed: untick manga/comic/book/boardgame in Preferences. (See decision-log.)
-- **E1 (dub/sub) — IN PROGRESS. T1–T3 DONE (2026-06-19); next action: T4.** Full spec:
+- **E1 (dub/sub) — ✅ COMPLETE (all T1–T7 done 2026-06-20). Next epic: E2 (list filters).** Full spec:
   **[planning/E1-dub-sub-plan.md](planning/E1-dub-sub-plan.md)** (per-task DONE notes recorded
   there). Scope is *availability* tracking: `AnimeAvailability` model (OneToOne→`Item`, JSON
   locale-code lists), manual entry + **MyDubList** auto-fill (daily Celery task + async
@@ -73,14 +73,38 @@ Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 �
     `app/languages.py` (faithful 26-entry port of v1 `LANGUAGES`, code↔display helpers) ·
     **T3** manual entry (`AnimeForm` save-override upserts on change only; `views.py` badge
     context key; "AVAILABILITY" card in `media_details.html`; `locale_display` filter in NEW
-    `app/templatetags/availability_tags.py`). **T1–T3 unblock the E10 import** (fields exist
-    end-to-end). All additive; no upstream core model/file edited except an additive context
-    key + the anime badge card.
-  - **Next: T4 (`app/providers/mydublist.py`).** FIRST resolve the open build-time unknown —
-    **fetch the real MyDubList JSON and confirm its schema** (key = MAL id? value shape?
-    locale format?) before writing `normalize_locales`. If it keys by AniList id not MAL, add
-    an id-map step. Then T5 (daily Celery sync) → T6 (on-add signal) → T7 (full tests, incl.
-    3 CRITICAL gaps).
+    `app/templatetags/availability_tags.py`) · **T4** `app/providers/mydublist.py`
+    (fetch+invert+normalize+match) · **T5** daily Celery beat sync (`tasks.py`
+    `sync_dub_availability` + `apply_mydublist_locales` helper; `settings.py`
+    `MYDUBLIST_CONFIDENCE` + beat entry; 6 task tests) · **T6** on-add fetch (`tasks.py`
+    `fetch_one_availability` + `signals.py` `post_save(Anime)` enqueue, best-effort;
+    CC BY attribution badge wired via `mydublist_credit` tag; `tests/conftest.py` autouse
+    stub; 7 task/signal tests) · **T7** full test sweep (NEW `tests/providers/test_mydublist.py`
+    18 mocked-network tests + tag/form/badge/E2-readiness gaps; 87 pass on the E1 surface,
+    714 collect clean). **T1–T3 unblock the E10 import** (fields exist end-to-end).
+    All additive; no upstream core model/file edited except an additive context key + the
+    anime badge card + a `post_save(Anime)` signal; `mydublist.py` is a standalone module
+    (not wired into `services.py`).
+  - **T4 schema finding (verified 2026-06-20):** MyDubList is NOT one JSON keyed by MAL id —
+    it's **inverted/split**: `dubs/confidence/<tier>/dubbed_<lang>.json` (tiers
+    low/normal/high/very-high; 27 lowercase lang NAMES; shape `{dubbed:[mal_id…],
+    partial:[mal_id…]}`). Values are MAL ids (no AniList id-map needed). Maintainer chose:
+    tier `high` (configurable `MYDUBLIST_CONFIDENCE`), region-collapsed → es-419/pt-BR/zh-CN,
+    include all 27 langs, merge `partial` as available. `fetch_dataset` inverts → `{str(mal_id):
+    [codes]}` (11,847 titles @ high). **CC BY 4.0 requires the `mydublist.ATTRIBUTION` credit
+    line in the badge UI** (TODO, fold into T5/T6).
+  - **E1 fully shipped (T1–T7).** Availability tracking is end-to-end: model + manual entry
+    + MyDubList auto-fill (daily Celery beat + best-effort on-add signal) + badge with CC BY
+    credit, all tested (87 on the E1 surface; provider tests fully offline). Not yet
+    committed (awaiting maintainer's go-ahead) and not yet exercised against a live
+    Celery worker / Postgres (only the pytest SQLite suite + a live MyDubList fetch smoke
+    test). Daily beat runs `crontab(hour=4)`; tune `MYDUBLIST_CONFIDENCE` if coverage feels
+    thin.
+  - **Next per build order (E3→E1→E2→E10→E9→polish→E8): E2 (list filters: rating /
+    language / genre / year).** The dub/sub language filter is the E1 tie-in — fields are
+    stored as canonical codes and queryable; ⚠️ mind the JSONField `__contains` SQLite
+    caveat (see [TODOS.md](planning/TODOS.md)). **E10 (v1 personal-data import) is also
+    unblocked** (T1–T3) and could come first if preferred.
   - **Dev env:** local `uv` venv is set up (`uv sync --group test`); run Django/pytest via
     `uv run` from `src/` with `DJANGO_SETTINGS_MODULE=config.test_settings` (SQLite). Docker
     Desktop was not running this session. E2 gotcha captured in

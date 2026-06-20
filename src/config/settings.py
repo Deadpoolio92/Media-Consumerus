@@ -556,6 +556,9 @@ USER_MESSAGE_RETENTION_DAYS = config(
     default=30,
     cast=int,
 )
+# MyDubList dub-availability sync (app/providers/mydublist.py). Confidence tier:
+# low (>=1 source) / normal (>=2) / high (>=3) / very-high (>=4).
+MYDUBLIST_CONFIDENCE = config("MYDUBLIST_CONFIDENCE", default="high")
 CELERY_BEAT_SCHEDULE = {
     "reload_calendar": {
         "task": "Reload calendar",
@@ -572,6 +575,10 @@ CELERY_BEAT_SCHEDULE = {
     "cleanup_user_messages": {
         "task": "Cleanup user messages",
         "schedule": 60 * 60 * 24,  # every 24 hours
+    },
+    "sync_dub_availability": {
+        "task": "Sync dub availability",
+        "schedule": crontab(hour=4, minute=0),  # daily, off-peak
     },
 }
 

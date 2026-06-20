@@ -616,3 +616,21 @@ class AnimeFormAvailabilityTests(TestCase):
         )
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["audio_locales"], ["ja-JP", "en-US"])
+
+    def test_clearing_existing_row_empties_and_marks_manual(self):
+        """Blanking the fields on a populated row empties it and marks it manual."""
+        AnimeAvailability.objects.create(
+            item=self.item,
+            audio_locales=["ja-JP"],
+            subtitle_locales=["en-US"],
+            source=AvailabilitySource.MYDUBLIST.value,
+        )
+
+        form = AnimeForm(data=self._base_form_data(audio="", subtitle=""))
+        self.assertTrue(form.is_valid(), form.errors)
+        self._save_form(form)
+
+        availability = AnimeAvailability.objects.get(item_id=self.item.id)
+        self.assertEqual(availability.audio_locales, [])
+        self.assertEqual(availability.subtitle_locales, [])
+        self.assertEqual(availability.source, AvailabilitySource.MANUAL.value)
