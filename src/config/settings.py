@@ -567,6 +567,18 @@ USER_MESSAGE_RETENTION_DAYS = config(
 # MyDubList dub-availability sync (app/providers/mydublist.py). Confidence tier:
 # low (>=1 source) / normal (>=2) / high (>=3) / very-high (>=4).
 MYDUBLIST_CONFIDENCE = config("MYDUBLIST_CONFIDENCE", default="high")
+# Crunchyroll sync (E9, integrations/crunchyroll/). E9a = the one-off
+# `backfill_crunchyroll_availability` command (no beat); these are admin-level
+# secrets, kept in the env/override like SECRET/TMDB_API (never committed).
+#   ETP_RT      — the long-lived `etp_rt` cookie copied once from a logged-in browser.
+#   BASIC_AUTH  — the public CR web-client `Authorization: Basic ...` value (unofficial;
+#                 see the E9 runbook for how to capture it).
+#   PROFILE_ID  — the maintainer's CR profile on the shared account (E9b / C2-C3 only).
+CRUNCHYROLL_ETP_RT = config("CRUNCHYROLL_ETP_RT", default="")
+CRUNCHYROLL_BASIC_AUTH = config("CRUNCHYROLL_BASIC_AUTH", default="")
+CRUNCHYROLL_PROFILE_ID = config("CRUNCHYROLL_PROFILE_ID", default="")
+# Stable device id sent on token requests; default is fine, override only if needed.
+CRUNCHYROLL_DEVICE_ID = config("CRUNCHYROLL_DEVICE_ID", default="")
 CELERY_BEAT_SCHEDULE = {
     "reload_calendar": {
         "task": "Reload calendar",
