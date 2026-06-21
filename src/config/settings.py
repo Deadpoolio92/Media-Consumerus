@@ -568,15 +568,26 @@ USER_MESSAGE_RETENTION_DAYS = config(
 # low (>=1 source) / normal (>=2) / high (>=3) / very-high (>=4).
 MYDUBLIST_CONFIDENCE = config("MYDUBLIST_CONFIDENCE", default="high")
 # Crunchyroll sync (E9, integrations/crunchyroll/). E9a = the one-off
-# `backfill_crunchyroll_availability` command (no beat); these are admin-level
-# secrets, kept in the env/override like SECRET/TMDB_API (never committed).
+# `backfill_crunchyroll_availability` command; E9b = the daily `Sync Crunchyroll` beat
+# (watchlist->status + history->progress). All admin-level secrets, kept in the
+# env/override like SECRET/TMDB_API (never committed).
 #   ETP_RT      — the long-lived `etp_rt` cookie copied once from a logged-in browser.
 #   BASIC_AUTH  — the public CR web-client `Authorization: Basic ...` value (unofficial;
 #                 see the E9 runbook for how to capture it).
-#   PROFILE_ID  — the maintainer's CR profile on the shared account (E9b / C2-C3 only).
+#   PROFILE_ID  — the maintainer's CR profile on the shared account (E9b / C2-C3 only;
+#                 the beat won't write unless the minted token confirms this profile).
+#   USERNAME    — which fork user C2/C3 writes to (E9b). Blank = the sole user when
+#                 there's exactly one (personal-fork norm); required if there are more.
 CRUNCHYROLL_ETP_RT = config("CRUNCHYROLL_ETP_RT", default="")
 CRUNCHYROLL_BASIC_AUTH = config("CRUNCHYROLL_BASIC_AUTH", default="")
 CRUNCHYROLL_PROFILE_ID = config("CRUNCHYROLL_PROFILE_ID", default="")
+CRUNCHYROLL_USERNAME = config("CRUNCHYROLL_USERNAME", default="")
+# Consecutive failed beats before a persistent error toast is raised (no silent fail).
+CRUNCHYROLL_AUTH_FAIL_THRESHOLD = config(
+    "CRUNCHYROLL_AUTH_FAIL_THRESHOLD",
+    default=3,
+    cast=int,
+)
 # Stable device id sent on token requests; default is fine, override only if needed.
 CRUNCHYROLL_DEVICE_ID = config("CRUNCHYROLL_DEVICE_ID", default="")
 CELERY_BEAT_SCHEDULE = {
@@ -603,6 +614,10 @@ CELERY_BEAT_SCHEDULE = {
     "sync_catalog_metadata": {
         "task": "Sync catalog metadata",
         "schedule": crontab(hour=4, minute=30),  # daily, off-peak (E2 genre/year)
+    },
+    "sync_crunchyroll": {
+        "task": "Sync Crunchyroll",
+        "schedule": crontab(hour=5, minute=0),  # daily, after E1 (4:00) / E2 (4:30)
     },
 }
 
