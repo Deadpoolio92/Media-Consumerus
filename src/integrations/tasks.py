@@ -1,12 +1,15 @@
 import logging
 
 from celery import shared_task
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 
 import events
 from app.mixins import disable_fetch_releases
-from app.models import MediaTypes
+from app.models import MediaTypes, UserMessage, UserMessageLevel
 from app.templatetags import app_tags
+from integrations.crunchyroll import client, sync
 from integrations.imports import (
     anilist,
     goodreads,
@@ -153,3 +156,110 @@ def import_imdb(file, user_id, mode):
 def import_goodreads(file, user_id, mode):
     """Celery task for importing media data from GoodReads."""
     return import_media(goodreads.importer, file, user_id, mode)
+
+
+# --------------------------------------------------------------------------- #
+# Crunchyroll forward sync (E9b) — daily watchlist->status + history->progress
+# --------------------------------------------------------------------------- #
+
+CR_FAIL_STREAK_KEY = "cr:sync:auth_fail_streak"
+
+
+def resolve_cr_user():
+    """Return the Django user CR sync writes to, or ``None`` if ambiguous.
+
+    CR is single-account/single-profile, so it maps to one fork user. Prefer the
+    configured ``CRUNCHYROLL_USERNAME``; otherwise, if the install has exactly one user
+    (the personal-fork norm), use it. An empty setting with multiple users is ambiguous
+    -> ``None`` (the caller skips rather than guessing whose library to write).
+    """
+    user_model = get_user_model()
+    username = settings.CRUNCHYROLL_USERNAME
+    if username:
+        return user_model.objects.filter(username=username).first()
+    users = list(user_model.objects.all()[:2])
+    return users[0] if len(users) == 1 else None
+
+
+def run_crunchyroll_sync(user, etp_rt, profile_id):
+    """Mint a profile-bound token, guard the profile, then run C2 + C3 for ``user``.
+
+    Shared by the daily beat and the manual management command. Raises ``ValueError`` /
+    ``OSError`` on any auth/profile failure (token mint, account lookup, or a profile
+    that can't be confirmed) so the caller can record/report it; returns
+    ``{"c2": …, "c3": …}`` counts on success.
+    """
+    token = client.mint_token(etp_rt, profile_id=profile_id)
+    account = client.account_id(token)
+    # Mandatory shared-account guard: never write another profile's data.
+    if not client.confirm_profile(token, profile_id):
+        msg = (
+            "Crunchyroll profile could not be confirmed (the token resolved to a "
+            "different profile); skipping sync to avoid writing the wrong data."
+        )
+        raise ValueError(msg)
+    return {
+        "c2": sync.sync_c2_status(token, account, user),
+        "c3": sync.sync_c3_progress(token, account, user),
+    }
+
+
+def _record_cr_failure(user, message):
+    """Count a consecutive CR auth/profile failure; surface it once it's persistent.
+
+    A single transient failure (expired ``etp_rt``, a CR blip) only logs. Once the
+    streak reaches ``CRUNCHYROLL_AUTH_FAIL_THRESHOLD`` it also raises a persistent
+    ``UserMessage`` (error toast) so an unattended beat can't fail silently forever
+    (review finding A-fail). The streak resets on the next success.
+    """
+    streak = (cache.get(CR_FAIL_STREAK_KEY) or 0) + 1
+    cache.set(CR_FAIL_STREAK_KEY, streak, None)
+    logger.warning("Crunchyroll sync failure (streak %s): %s", streak, message)
+    if streak >= settings.CRUNCHYROLL_AUTH_FAIL_THRESHOLD:
+        UserMessage.objects.create(
+            user=user,
+            level=UserMessageLevel.ERROR.value,
+            message=(
+                f"Crunchyroll sync has failed {streak} runs in a row. "
+                f"Re-capture CRUNCHYROLL_ETP_RT (it expires). Details: {message}"
+            ),
+        )
+
+
+def _clear_cr_failure():
+    """Reset the consecutive-failure streak after a successful sync."""
+    cache.delete(CR_FAIL_STREAK_KEY)
+
+
+@shared_task(name="Sync Crunchyroll")
+def sync_crunchyroll():
+    """Daily: pull CR watchlist->status (C2) and history->progress (C3) for the user.
+
+    No-ops cleanly when CR isn't configured (``ETP_RT``/``PROFILE_ID`` unset) or the
+    target user is ambiguous. Auth/profile failures are recorded (and surfaced as a
+    persistent error after a few consecutive runs) rather than raising.
+    """
+    if not settings.CRUNCHYROLL_ETP_RT or not settings.CRUNCHYROLL_PROFILE_ID:
+        logger.info("Crunchyroll sync skipped: ETP_RT/PROFILE_ID not configured.")
+        return None
+
+    user = resolve_cr_user()
+    if user is None:
+        logger.warning(
+            "Crunchyroll sync skipped: no target user (set CRUNCHYROLL_USERNAME).",
+        )
+        return None
+
+    try:
+        result = run_crunchyroll_sync(
+            user,
+            settings.CRUNCHYROLL_ETP_RT,
+            settings.CRUNCHYROLL_PROFILE_ID,
+        )
+    except (ValueError, OSError) as exc:
+        _record_cr_failure(user, str(exc))
+        return None
+
+    _clear_cr_failure()
+    logger.info("Crunchyroll sync complete: %s", result)
+    return result

@@ -204,3 +204,188 @@ class ListProfilesTests(SimpleTestCase):
         """A payload missing 'profiles' yields an empty list (no crash)."""
         with patch.object(client.services, "api_request", return_value={}):
             self.assertEqual(client.list_profiles("tok"), [])
+
+
+@override_settings(CRUNCHYROLL_BASIC_AUTH="Basic test==")
+class MintTokenProfileTests(SimpleTestCase):
+    """E9b: a profile-bound token sends the profile_id form field."""
+
+    def test_profile_id_is_sent_when_given(self):
+        """mint_token(..., profile_id) adds the profile bind field to the grant."""
+        with patch.object(
+            client.services,
+            "api_request",
+            return_value={"access_token": "tok"},
+        ) as mock_req:
+            client.mint_token("etp", profile_id="prof-9")
+        self.assertEqual(mock_req.call_args[1]["data"]["profile_id"], "prof-9")
+
+    def test_profile_id_omitted_by_default(self):
+        """E9a's catalog-wide call sends no profile_id (unchanged behavior)."""
+        with patch.object(
+            client.services,
+            "api_request",
+            return_value={"access_token": "tok"},
+        ) as mock_req:
+            client.mint_token("etp")
+        self.assertNotIn("profile_id", mock_req.call_args[1]["data"])
+
+
+class AccountIdTests(SimpleTestCase):
+    """E9b: the watchlist/history account path segment."""
+
+    def test_returns_account_id(self):
+        """accounts/v1/me yields the account_id."""
+        with patch.object(
+            client.services,
+            "api_request",
+            return_value={"account_id": "acct-1"},
+        ):
+            self.assertEqual(client.account_id("tok"), "acct-1")
+
+    def test_missing_account_id_raises(self):
+        """A response with no account_id is a hard error."""
+        with (
+            patch.object(client.services, "api_request", return_value={}),
+            self.assertRaises(ValueError),
+        ):
+            client.account_id("tok")
+
+
+class ConfirmProfileTests(SimpleTestCase):
+    """E9b: the mandatory shared-account guard."""
+
+    def _profiles(self, profiles):
+        return patch.object(
+            client.services,
+            "api_request",
+            return_value={"profiles": profiles},
+        )
+
+    def test_selected_matches_expected(self):
+        """The selected profile equals the configured id -> guard passes."""
+        with self._profiles(
+            [
+                {"profile_id": "mine", "is_selected": True},
+                {"profile_id": "other", "is_selected": False},
+            ],
+        ):
+            self.assertTrue(client.confirm_profile("tok", "mine"))
+
+    def test_selected_is_someone_else(self):
+        """A selected profile that isn't ours -> guard fails (caller skips)."""
+        with self._profiles([{"profile_id": "other", "is_selected": True}]):
+            self.assertFalse(client.confirm_profile("tok", "mine"))
+
+    def test_no_selected_profile(self):
+        """No profile flagged selected -> guard fails."""
+        with self._profiles([{"profile_id": "mine", "is_selected": False}]):
+            self.assertFalse(client.confirm_profile("tok", "mine"))
+
+    def test_blank_expected_id_fails_closed(self):
+        """An unconfigured CRUNCHYROLL_PROFILE_ID fails the guard, no API call."""
+        with patch.object(client.services, "api_request") as mock_req:
+            self.assertFalse(client.confirm_profile("tok", ""))
+        mock_req.assert_not_called()
+
+
+class FetchWatchlistTests(SimpleTestCase):
+    """E9b: watchlist -> series ids (anime only)."""
+
+    def test_extracts_episode_and_series_panels_drops_movies(self):
+        """Episode + series panels yield series ids; a movie panel is dropped."""
+        payload = {
+            "data": [
+                {
+                    "panel": {
+                        "type": "episode",
+                        "episode_metadata": {
+                            "series_id": "GT1",
+                            "series_title": "Show One",
+                        },
+                    },
+                },
+                {"panel": {"type": "series", "id": "GT2", "title": "Show Two"}},
+                {"panel": {"type": "movie", "movie_listing_metadata": {}}},
+            ],
+        }
+        with patch.object(client.services, "api_request", return_value=payload):
+            entries = client.fetch_watchlist("tok", "acct")
+
+        self.assertEqual(
+            entries,
+            [
+                {"series_id": "GT1", "title": "Show One"},
+                {"series_id": "GT2", "title": "Show Two"},
+            ],
+        )
+
+    def test_empty_watchlist(self):
+        """No data -> no entries."""
+        with patch.object(client.services, "api_request", return_value={}):
+            self.assertEqual(client.fetch_watchlist("tok", "acct"), [])
+
+
+class FetchHistoryTests(SimpleTestCase):
+    """E9b: watch-history -> normalized progress rows."""
+
+    def test_parses_top_level_and_nested_shapes(self):
+        """series_id/season/episode are read from the row or panel.episode_metadata."""
+        payload = {
+            "data": [
+                {
+                    "series_id": "GT1",
+                    "season_number": 1,
+                    "episode_number": 12,
+                    "series_title": "Show One",
+                },
+                {
+                    "panel": {
+                        "episode_metadata": {
+                            "series_id": "GT2",
+                            "season_number": 2,
+                            "episode_number": 5,
+                            "series_title": "Show Two",
+                        },
+                    },
+                },
+                {"panel": {"episode_metadata": {}}},  # no series id -> dropped
+            ],
+        }
+        with patch.object(client.services, "api_request", return_value=payload):
+            rows = client.fetch_history("tok", "acct")
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["series_id"], "GT1")
+        self.assertEqual(rows[0]["episode_number"], 12)
+        self.assertEqual(rows[1]["series_id"], "GT2")
+        self.assertEqual(rows[1]["season_number"], 2)
+
+    def test_season_episode_default_when_absent(self):
+        """A row with only a series id defaults to season 1 / episode 0."""
+        payload = {"data": [{"series_id": "GT9"}]}
+        with patch.object(client.services, "api_request", return_value=payload):
+            rows = client.fetch_history("tok", "acct")
+        self.assertEqual((rows[0]["season_number"], rows[0]["episode_number"]), (1, 0))
+
+
+class SeasonsTests(SimpleTestCase):
+    """E9b: per-season list for the multi-season resolve (D3)."""
+
+    def test_returns_seasons(self):
+        """cms/series/{code}/seasons yields season_number + title pairs."""
+        payload = {
+            "data": [
+                {"season_number": 1, "title": "Season 1"},
+                {"season_number": 2, "title": "Season 2: Sequel"},
+            ],
+        }
+        with patch.object(client.services, "api_request", return_value=payload):
+            result = client.seasons("tok", "GT1")
+        self.assertEqual(result[1], {"season_number": 2, "title": "Season 2: Sequel"})
+
+    def test_404_yields_empty(self):
+        """A series with no seasons endpoint (404) yields [] (caller skips)."""
+        err = requests.exceptions.HTTPError(response=MagicMock(status_code=404))
+        with patch.object(client.services, "api_request", side_effect=err):
+            self.assertEqual(client.seasons("tok", "GONE"), [])

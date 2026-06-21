@@ -1,14 +1,20 @@
-"""Tests for the E9a management commands (token + sync are mocked)."""
+"""Tests for the CR management commands (E9a backfill/list + E9b status sync).
+
+Token + sync are mocked; no network.
+"""
 
 from io import StringIO
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 BACKFILL = "app.management.commands.backfill_crunchyroll_availability"
 LIST_CMD = "app.management.commands.list_crunchyroll_profiles"
+
+User = get_user_model()
 
 
 class BackfillCommandTests(SimpleTestCase):
@@ -76,3 +82,53 @@ class ListProfilesCommandTests(SimpleTestCase):
         output = out.getvalue()
         self.assertIn("p1", output)
         self.assertIn("Me", output)
+
+
+_C2 = {"watchlist": 2, "planning_created": 1, "skipped": 1, "unmatched": 0, "errors": 0}
+_C3 = {"series": 3, "written": 2, "unchanged": 0, "skipped": 0, "unmatched": 1,
+       "via_season": 1, "multi_season_skipped": 0, "errors": 0}
+
+
+class SyncStatusCommandTests(TestCase):
+    """`sync_crunchyroll_status` (E9b manual one-shot)."""
+
+    @override_settings(CRUNCHYROLL_ETP_RT="", CRUNCHYROLL_PROFILE_ID="prof")
+    def test_missing_etp_rt_raises(self):
+        """No credential -> CommandError, no network."""
+        with self.assertRaises(CommandError):
+            call_command("sync_crunchyroll_status")
+
+    @override_settings(CRUNCHYROLL_ETP_RT="etp", CRUNCHYROLL_PROFILE_ID="")
+    def test_missing_profile_id_raises(self):
+        """No confirmed-profile target -> CommandError (won't risk a wrong write)."""
+        with self.assertRaises(CommandError):
+            call_command("sync_crunchyroll_status")
+
+    @override_settings(CRUNCHYROLL_ETP_RT="etp", CRUNCHYROLL_PROFILE_ID="prof")
+    def test_runs_and_reports(self):
+        """Resolves the user, runs the shared sync, prints C2/C3 counts."""
+        User.objects.create(username="solo")
+        out = StringIO()
+        with patch(
+            "integrations.tasks.run_crunchyroll_sync",
+            return_value={"c2": _C2, "c3": _C3},
+        ) as mock_run:
+            call_command("sync_crunchyroll_status", stdout=out)
+
+        mock_run.assert_called_once()
+        output = out.getvalue()
+        self.assertIn("1 new Planning", output)
+        self.assertIn("2 written", output)
+
+    @override_settings(CRUNCHYROLL_ETP_RT="etp", CRUNCHYROLL_PROFILE_ID="prof")
+    def test_sync_failure_raises_commanderror(self):
+        """An auth/profile failure surfaces as a CommandError, not a traceback."""
+        User.objects.create(username="solo")
+        with (
+            patch(
+                "integrations.tasks.run_crunchyroll_sync",
+                side_effect=ValueError("profile could not be confirmed"),
+            ),
+            self.assertRaises(CommandError),
+        ):
+            call_command("sync_crunchyroll_status")

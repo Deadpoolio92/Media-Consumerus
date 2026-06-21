@@ -61,23 +61,16 @@ The pivot is locked (fork Yamtrack, stay merge-able, private). Stock Yamtrack ru
 Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 → polish → E8.**
 
 **E9 was eng-reviewed and PHASED (`/plan-eng-review`, 8 decisions D1–D8 in
-[planning/E9-crunchyroll-plan.md](planning/E9-crunchyroll-plan.md), no longer DRAFT): E9a (C1
-dub/sub) + E9b (C2/C3 status+progress).**
+[planning/E9-crunchyroll-plan.md](planning/E9-crunchyroll-plan.md)): E9a (C1 dub/sub) + E9b
+(C2/C3 status+progress). Both are now done** — E9a shipped+merged (PR #5), E9b built 2026-06-21.
 
-**▶ NEXT EPIC = E9b (Crunchyroll watchlist→status + history→progress).** E3/E1/E2/E10 **and
-E9a** are all done. E9b = C2 (CR watchlist → `Status`) + C3 (CR history → `Anime.progress`),
-the first *forward* auto-track. It reuses E9a's live-proven `integrations/crunchyroll/client.py`
-+ token flow, and **adds**: the token **refresh loop**, the CR-code→MAL-id resolver
-(`resolve.py` — seed + Jikan fallback, port E10's scorer), the **shared-account profile guard**
-(select/confirm the maintainer's `CRUNCHYROLL_PROFILE_ID`; skip C2/C3 if the active profile
-can't be confirmed), a **daily Celery beat**, and a **visible auth-failure signal**. Tasks
-B-T1..B-T5 are in the plan. **One OPEN decision to settle first (D3): multi-season CR→MAL
-mapping** — a CR series-id spans several MAL ids but the seed has one; candidate approaches
-(single-season-only+report vs. per-season Jikan resolver) are recorded. Reuse the
-`AnimeWebhookMixin` advancement *rule* but extract it (it's webhook-payload-coupled; anime is a
-flat `Anime.progress` integer per MAL id). **No Re-Watching status; never downgrade Completed;
-never overwrite a manual status** (status is user-owned, unlike availability). Start a fresh
-chat; this resume note + the plan doc are the entry point.
+**▶ NEXT = polish, then E8** (build order E3→E1→E2→E10→E9→polish→E8). E3/E1/E2/E10/E9 are all
+done; see the E9 bullet below + the plan doc's E9b notes/runbook. **One live-verify gate before
+trusting E9b writes:** the unofficial CR profile-bind (`profile_id` form field on
+`/auth/v1/token`) — `confirm_profile` makes the sync **fail closed** if the bind silently didn't
+take, so run `manage.py sync_crunchyroll_status` once with `CRUNCHYROLL_PROFILE_ID` set and
+confirm it doesn't print "profile could not be confirmed" before relying on the daily beat. Start
+a fresh chat; this resume note + the plan doc are the entry point.
 
 **Done / planned:**
 
@@ -196,6 +189,33 @@ chat; this resume note + the plan doc are the entry point.
     won't exist in the CSS — reuse already-compiled classes or set the style inline (djlint H021
     is ignored project-wide). Tests run via the host `uv` venv from `src/` with
     `DJANGO_SETTINGS_MODULE=config.test_settings`, NOT in-container (the prod venv lacks pytest).
+
+- **E9 (Crunchyroll sync) — ✅ E9a SHIPPED+MERGED (PR #5, 2026-06-21); E9b BUILT (2026-06-21,
+  branch `feat/e9b-crunchyroll-status-progress`).** Self-contained `integrations/crunchyroll/`
+  module (`client`/`resolve`/`sync`) + an `integrations/tasks.py` beat + two
+  `app/management/commands/`. All CR-API-shape risk is isolated in `client.py`; network is mocked
+  in tests. Plan + per-task notes: [planning/E9-crunchyroll-plan.md](planning/E9-crunchyroll-plan.md).
+  - **E9a / C1 (dub/sub backfill):** one-off `manage.py backfill_crunchyroll_availability` fills
+    `AnimeAvailability` audio+subtitle from the CR catalog (seed-code → exact-title → cms/series
+    fallback; no-blank, last-write-wins). Profile-independent, read-only on CR. 310 rows seeded
+    live during E10.
+  - **E9b / C2+C3 (forward sync):** daily `Sync Crunchyroll` beat (05:00) + manual
+    `manage.py sync_crunchyroll_status`. C2 watchlist→Planning (untracked only); C3
+    history→progress via a standalone `_advance_progress` (forward-only, never downgrade
+    Completed, **respects manual Paused/Dropped**). CR-code→MAL via seed → **exact-only** Jikan
+    fallback (cached). **D3 resolved = Hybrid:** season-1 off the seed, season>1 per-season via
+    `cms/series/{code}/seasons`+Jikan, else skip+report. Shared-account **profile guard**
+    (`CRUNCHYROLL_PROFILE_ID` + `confirm_profile`, **fails closed**) + a **visible auth-failure
+    signal** (UserMessage ERROR toast after `CRUNCHYROLL_AUTH_FAIL_THRESHOLD`=3 consecutive
+    misses). New settings: `CRUNCHYROLL_USERNAME`, `CRUNCHYROLL_AUTH_FAIL_THRESHOLD`. **85 CR
+    tests green, ruff clean, no migration** (additive only).
+  - **Merge-safety call:** the advancement rule is a **standalone re-implementation, NOT an edit
+    to `webhooks/anime.py`** — upstream's `harshil/fix-rewatch-tracking` is reworking that exact
+    file, so a refactor there (plan A5's literal "shared" wording) would guarantee conflicts.
+  - **⚠️ Live-verify gate:** the unofficial profile-bind mechanism (`profile_id` form field on
+    `/auth/v1/token`) — verify once via the E9b runbook before trusting C2/C3 writes; the guard
+    fails closed until then.
+  - **Next per build order: polish, then E8.**
 
 **Backlog + sequence:** [planning/BACKLOG.md](planning/BACKLOG.md). v1 (Google Sheet + Apps
 Script) lives at `../Media Tracker v1` — source for the E10 personal-data import (transform
