@@ -65,12 +65,11 @@ Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 �
 (C2/C3 status+progress). Both are now done** — E9a shipped+merged (PR #5), E9b built 2026-06-21.
 
 **▶ NEXT = polish, then E8** (build order E3→E1→E2→E10→E9→polish→E8). E3/E1/E2/E10/E9 are all
-done; see the E9 bullet below + the plan doc's E9b notes/runbook. **One live-verify gate before
-trusting E9b writes:** the unofficial CR profile-bind (`profile_id` form field on
-`/auth/v1/token`) — `confirm_profile` makes the sync **fail closed** if the bind silently didn't
-take, so run `manage.py sync_crunchyroll_status` once with `CRUNCHYROLL_PROFILE_ID` set and
-confirm it doesn't print "profile could not be confirmed" before relying on the daily beat. Start
-a fresh chat; this resume note + the plan doc are the entry point.
+done and merged; see the E9 bullet below + the plan doc's E9b notes/runbook. **E9b is fully
+LIVE — the profile-bind live-verify gate PASSED (2026-06-21):** `sync_crunchyroll_status` ran
+in-container against the `LK` profile (confirmed, no fail-closed), C2/C3 wrote clean (0 errors),
+and the daily 05:00 beat now keeps status/progress fresh. Start a fresh chat; this resume note +
+the plan doc are the entry point.
 
 **Done / planned:**
 
@@ -212,10 +211,14 @@ a fresh chat; this resume note + the plan doc are the entry point.
   - **Merge-safety call:** the advancement rule is a **standalone re-implementation, NOT an edit
     to `webhooks/anime.py`** — upstream's `harshil/fix-rewatch-tracking` is reworking that exact
     file, so a refactor there (plan A5's literal "shared" wording) would guarantee conflicts.
-  - **⚠️ Live-verify gate:** the unofficial profile-bind mechanism (`profile_id` form field on
-    `/auth/v1/token`) — verify once via the E9b runbook before trusting C2/C3 writes; the guard
-    fails closed until then.
-  - **Next per build order: polish, then E8.**
+  - **✅ Live-verified 2026-06-21 (PASSED):** `manage.py sync_crunchyroll_status` ran
+    in-container as user `Deadpoolio` against the `LK` profile — the unofficial profile-bind
+    (`profile_id` on `/auth/v1/token`) **confirmed** (no fail-closed). **C2:** 11 Planning / 13
+    already-tracked / 2 unmatched of 26. **C3:** 28 written / 22 unchanged / 51 skipped
+    (Completed+manual respected) / 2 unmatched / 9 via-season / 6 multi-season-skipped of 109,
+    **0 errors**. The daily 05:00 beat is now live. (6 multi-season-skipped + 2 unmatched are the
+    handle-by-hand titles; revisit if needed.)
+  - **Next per build order: polish (E6/E7/E5), then E8.**
 
 **Backlog + sequence:** [planning/BACKLOG.md](planning/BACKLOG.md). v1 (Google Sheet + Apps
 Script) lives at `../Media Tracker v1` — source for the E10 personal-data import (transform
