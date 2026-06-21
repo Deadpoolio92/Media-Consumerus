@@ -120,8 +120,10 @@
   </div>
 
   <div class="p-3">
+    {# inline min-height reserves 2 lines so 1- and 2-line titles keep cards equal height (min-h-[2.5rem] isn't in the prebuilt CSS; Tailwind isn't recompiled) #}
     <a href="{{ item|media_url }}"
-       class="text-sm font-semibold text-white hover:text-indigo-400 transition duration-300 line-clamp-1"
+       class="text-sm font-semibold text-white hover:text-indigo-400 transition duration-300 line-clamp-2"
+       style="min-height: 2.5rem"
        title="{{ title }}">{{ title }}</a>
   </div>
 
