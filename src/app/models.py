@@ -2044,8 +2044,10 @@ class AnimeAvailability(models.Model):
       * ``audio_locales`` is overwritten by any source (manual or auto).
       * A sync NEVER blanks ``audio_locales`` for a title it has no data for
         (an unknown title is skipped, prior value retained).
-      * ``subtitle_locales`` is NEVER written by an auto source — MyDubList has
-        no sub data, so subs stay manual until Crunchyroll (E9).
+      * ``subtitle_locales`` is written by Crunchyroll (E9) and manual entry.
+        MyDubList has no sub data so it never touches subs; Crunchyroll overwrites
+        subs the same way it does audio (last-write-wins, incl. over a prior manual
+        value) and likewise never blanks a title it has no sub data for.
     Locales are canonical codes (CR/BCP-47 style: ``ja-JP``, ``en-US``,
     ``es-419``); display names come from ``app/languages.py``.
     """

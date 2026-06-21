@@ -60,19 +60,24 @@ top-level, not nested).
 The pivot is locked (fork Yamtrack, stay merge-able, private). Stock Yamtrack runs locally.
 Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 → polish → E8.**
 
-**▶ NEXT EPIC = E9 (Crunchyroll sync).** E3/E1/E2/E10 are all done; the v1 personal library
-is imported and LIVE (see E10 below). E9 = port v1's verified Crunchyroll sync as a new
-self-contained integration module. Sources to port: `../Media Tracker v1/gas/Crunchy_*.gs`;
-endpoint list + the one shape nuance in [planning/DESIGN.md](planning/DESIGN.md) →
-"Crunchyroll"; scope/approach in [planning/BACKLOG.md](planning/BACKLOG.md) (E9). The E9 plan
-doc now EXISTS: **[planning/E9-crunchyroll-plan.md](planning/E9-crunchyroll-plan.md)** (DRAFT) —
-blocked on **three maintainer decisions** before `/plan-eng-review`: (1) **auth model** —
-manual bearer-token paste (one-shot importer only) vs. `etp_rt`-cookie/device flow (enables an
-unattended daily beat); (2) **capability scope** — which of C1 dub/sub→E1 / C2 watchlist→status /
-C3 history→progress / C4 upload to port; (3) **catalog breadth** — library-only sync vs. ingest
-the full ~1500-title CR browse catalog. Core design challenge documented in the plan: CR uses its
-own series-id namespace, but the fork keys anime by MAL id — needs a CR-code→MAL-id resolver
-(E10's `out/resolved.json` gives a ~318-title seed map; Jikan title-search fallback for new ones).
+**E9 was eng-reviewed and PHASED (`/plan-eng-review`, 8 decisions D1–D8 in
+[planning/E9-crunchyroll-plan.md](planning/E9-crunchyroll-plan.md), no longer DRAFT): E9a (C1
+dub/sub) + E9b (C2/C3 status+progress).**
+
+**▶ NEXT EPIC = E9b (Crunchyroll watchlist→status + history→progress).** E3/E1/E2/E10 **and
+E9a** are all done. E9b = C2 (CR watchlist → `Status`) + C3 (CR history → `Anime.progress`),
+the first *forward* auto-track. It reuses E9a's live-proven `integrations/crunchyroll/client.py`
++ token flow, and **adds**: the token **refresh loop**, the CR-code→MAL-id resolver
+(`resolve.py` — seed + Jikan fallback, port E10's scorer), the **shared-account profile guard**
+(select/confirm the maintainer's `CRUNCHYROLL_PROFILE_ID`; skip C2/C3 if the active profile
+can't be confirmed), a **daily Celery beat**, and a **visible auth-failure signal**. Tasks
+B-T1..B-T5 are in the plan. **One OPEN decision to settle first (D3): multi-season CR→MAL
+mapping** — a CR series-id spans several MAL ids but the seed has one; candidate approaches
+(single-season-only+report vs. per-season Jikan resolver) are recorded. Reuse the
+`AnimeWebhookMixin` advancement *rule* but extract it (it's webhook-payload-coupled; anime is a
+flat `Anime.progress` integer per MAL id). **No Re-Watching status; never downgrade Completed;
+never overwrite a manual status** (status is user-owned, unlike availability). Start a fresh
+chat; this resume note + the plan doc are the entry point.
 
 **Done / planned:**
 
