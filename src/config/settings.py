@@ -373,6 +373,14 @@ MAL_API = config(
 )
 MAL_NSFW = config("MAL_NSFW", default=False, cast=bool)
 
+# Prefer MAL's English alternative title over the romaji/native canonical title
+# when displaying anime/manga (fork enhancement; falls back when no English name).
+MAL_PREFER_ENGLISH_TITLE = config(
+    "MAL_PREFER_ENGLISH_TITLE",
+    default=True,
+    cast=bool,
+)
+
 MU_NSFW = config("MU_NSFW", default=False, cast=bool)
 
 IGDB_ID = config(
