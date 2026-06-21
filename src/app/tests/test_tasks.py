@@ -29,6 +29,7 @@ from app.tasks import (
     fetch_one_metadata,
     sync_catalog_metadata,
     sync_dub_availability,
+    upsert_availability,
 )
 
 
@@ -619,3 +620,140 @@ class MetadataOnAddSignalTests(TestCase):
             movie.save()
 
         mock_fetch.assert_not_called()
+
+
+class UpsertAvailabilityTests(TestCase):
+    """The shared availability writer (D4) — MyDubList audio + Crunchyroll audio+sub."""
+
+    def setUp(self):
+        """Create one MAL anime to attach availability to."""
+        self.anime = Item.objects.create(
+            media_id="1",
+            source=Sources.MAL.value,
+            media_type=MediaTypes.ANIME.value,
+            title="Anime",
+            image="http://example.com/1.jpg",
+        )
+
+    def test_creates_row_with_audio_and_subtitle(self):
+        """Crunchyroll-style call writes both lists + source on a fresh row."""
+        written = upsert_availability(
+            self.anime,
+            audio=["ja-JP", "en-US"],
+            subtitle=["en-US", "es-419"],
+            source=AvailabilitySource.CRUNCHYROLL.value,
+        )
+
+        self.assertTrue(written)
+        availability = AnimeAvailability.objects.get(item=self.anime)
+        self.assertEqual(availability.audio_locales, ["ja-JP", "en-US"])
+        self.assertEqual(availability.subtitle_locales, ["en-US", "es-419"])
+        self.assertEqual(availability.source, AvailabilitySource.CRUNCHYROLL.value)
+
+    def test_audio_only_call_leaves_subtitle_default(self):
+        """An audio-only (MyDubList-style) create never sets subtitle_locales."""
+        upsert_availability(
+            self.anime,
+            audio=["ja-JP"],
+            source=AvailabilitySource.MYDUBLIST.value,
+        )
+
+        availability = AnimeAvailability.objects.get(item=self.anime)
+        self.assertEqual(availability.audio_locales, ["ja-JP"])
+        self.assertEqual(availability.subtitle_locales, [])
+
+    def test_crunchyroll_overwrites_manual_subtitles(self):
+        """D2: CR overwrites a prior manual subtitle list (last-write-wins)."""
+        AnimeAvailability.objects.create(
+            item=self.anime,
+            audio_locales=["ja-JP"],
+            subtitle_locales=["fr-FR"],
+            source=AvailabilitySource.MANUAL.value,
+        )
+
+        written = upsert_availability(
+            self.anime,
+            audio=["ja-JP"],
+            subtitle=["en-US"],
+            source=AvailabilitySource.CRUNCHYROLL.value,
+        )
+
+        self.assertTrue(written)
+        availability = AnimeAvailability.objects.get(item=self.anime)
+        self.assertEqual(availability.subtitle_locales, ["en-US"])
+        self.assertEqual(availability.source, AvailabilitySource.CRUNCHYROLL.value)
+
+    def test_none_field_is_never_blanked(self):
+        """No-blank rule: ``subtitle=None`` leaves an existing sub list intact."""
+        AnimeAvailability.objects.create(
+            item=self.anime,
+            audio_locales=["ja-JP"],
+            subtitle_locales=["en-US"],
+            source=AvailabilitySource.CRUNCHYROLL.value,
+        )
+
+        written = upsert_availability(
+            self.anime,
+            audio=["ja-JP", "de-DE"],
+            subtitle=None,  # CR had no sub data this run — must not blank
+            source=AvailabilitySource.CRUNCHYROLL.value,
+        )
+
+        self.assertTrue(written)
+        availability = AnimeAvailability.objects.get(item=self.anime)
+        self.assertEqual(availability.audio_locales, ["ja-JP", "de-DE"])
+        self.assertEqual(availability.subtitle_locales, ["en-US"])
+
+    def test_partial_change_updates_only_differing_field(self):
+        """Audio identical + subtitle differing → subtitle is updated, source flips."""
+        AnimeAvailability.objects.create(
+            item=self.anime,
+            audio_locales=["ja-JP"],
+            subtitle_locales=["en-US"],
+            source=AvailabilitySource.MANUAL.value,
+        )
+
+        written = upsert_availability(
+            self.anime,
+            audio=["ja-JP"],  # unchanged
+            subtitle=["en-US", "es-419"],  # changed
+            source=AvailabilitySource.CRUNCHYROLL.value,
+        )
+
+        self.assertTrue(written)
+        availability = AnimeAvailability.objects.get(item=self.anime)
+        self.assertEqual(availability.subtitle_locales, ["en-US", "es-419"])
+        self.assertEqual(availability.source, AvailabilitySource.CRUNCHYROLL.value)
+
+    def test_identical_data_is_a_noop(self):
+        """Unchanged audio + subtitle → no write, source unchanged (no churn)."""
+        AnimeAvailability.objects.create(
+            item=self.anime,
+            audio_locales=["ja-JP"],
+            subtitle_locales=["en-US"],
+            source=AvailabilitySource.MANUAL.value,
+        )
+
+        written = upsert_availability(
+            self.anime,
+            audio=["ja-JP"],
+            subtitle=["en-US"],
+            source=AvailabilitySource.CRUNCHYROLL.value,
+        )
+
+        self.assertFalse(written)
+        availability = AnimeAvailability.objects.get(item=self.anime)
+        # source must NOT flip when nothing changed.
+        self.assertEqual(availability.source, AvailabilitySource.MANUAL.value)
+
+    def test_all_none_is_a_noop(self):
+        """An all-``None`` call writes nothing and creates no row."""
+        written = upsert_availability(
+            self.anime,
+            audio=None,
+            subtitle=None,
+            source=AvailabilitySource.CRUNCHYROLL.value,
+        )
+
+        self.assertFalse(written)
+        self.assertFalse(AnimeAvailability.objects.filter(item=self.anime).exists())

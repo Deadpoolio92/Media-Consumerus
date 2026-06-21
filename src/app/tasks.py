@@ -37,40 +37,81 @@ def cleanup_user_messages():
     return deleted_count
 
 
-def apply_mydublist_locales(item, locales):
-    """Upsert one anime's dub availability from MyDubList; return ``True`` if written.
+def upsert_availability(item, *, audio=None, subtitle=None, source):
+    """Upsert one anime's dub/sub availability; return ``True`` if a row was written.
 
-    Honours the AnimeAvailability write rules:
-      * overwrites ``audio_locales`` with any *differing* value (last-different-
-        write-wins) and sets ``source=mydublist``;
-      * NEVER touches ``subtitle_locales`` — it's excluded from the UPDATE and only
-        defaulted to ``[]`` when inserting a brand-new row;
-      * identical-value writes are skipped entirely (returns ``False``) so a daily
-        re-run doesn't churn ``updated_at`` or flip a matching manual entry's source.
+    The single writer shared by every availability source (MyDubList = audio-only,
+    Crunchyroll = audio + subtitle). Honours the ``AnimeAvailability`` write rules in
+    ONE place so they can't drift between callers:
 
-    ``locales`` must be a non-empty list (a covered title); callers skip ``None``
-    misses so an uncovered title is never blanked.
+      * ``audio`` / ``subtitle`` are written only when passed a list; **``None`` means
+        "no data for this field — leave it untouched"** (the no-blank rule: an
+        uncovered field is never blanked). Callers convert an empty provider result
+        to ``None`` rather than passing ``[]``.
+      * last-write-wins: a *differing* provided value overwrites the field and sets
+        ``source``;
+      * identical-value writes are skipped entirely (returns ``False``) so a re-run
+        doesn't churn ``updated_at`` or flip a matching entry's source.
+
+    An all-``None`` call is a no-op (returns ``False``).
+
+       caller ──audio/subtitle (list=write, None=skip)──► upsert_availability
+                                                              │
+                          ┌───────────────── no row? ─────────┤
+                          ▼                                   ▼ row exists
+                 create(provided fields,             diff provided fields;
+                   source); race→fall through        unchanged → return False;
+                          │                           else set changed + source,
+                          ▼                           save(update_fields)
+                     return True                           return True
     """
+    if audio is None and subtitle is None:
+        return False
+
     availability = AnimeAvailability.objects.filter(item=item).first()
     if availability is None:
+        create_kwargs = {"item": item, "source": source}
+        if audio is not None:
+            create_kwargs["audio_locales"] = audio
+        if subtitle is not None:
+            create_kwargs["subtitle_locales"] = subtitle
         try:
-            AnimeAvailability.objects.create(
-                item=item,
-                audio_locales=locales,
-                source=AvailabilitySource.MYDUBLIST.value,
-            )
+            AnimeAvailability.objects.create(**create_kwargs)
         except IntegrityError:
             # Lost a create race against another worker (on-add fetch vs. daily
             # sync hitting the same item) — the OneToOneField now has a row.
             availability = AnimeAvailability.objects.get(item=item)
         else:
             return True
-    if availability.audio_locales == locales:
-        return False
-    availability.audio_locales = locales
-    availability.source = AvailabilitySource.MYDUBLIST.value
-    availability.save(update_fields=["audio_locales", "source", "updated_at"])
+
+    update_fields = []
+    if audio is not None and availability.audio_locales != audio:
+        availability.audio_locales = audio
+        update_fields.append("audio_locales")
+    if subtitle is not None and availability.subtitle_locales != subtitle:
+        availability.subtitle_locales = subtitle
+        update_fields.append("subtitle_locales")
+
+    if not update_fields:
+        return False  # nothing changed — don't churn updated_at or flip source
+
+    availability.source = source
+    availability.save(update_fields=[*update_fields, "source", "updated_at"])
     return True
+
+
+def apply_mydublist_locales(item, locales):
+    """Upsert one anime's dub availability from MyDubList; return ``True`` if written.
+
+    Thin wrapper over :func:`upsert_availability` (audio-only, ``source=mydublist``);
+    ``subtitle_locales`` is never touched. ``locales`` must be a non-empty list
+    (callers skip ``None`` misses) so an uncovered title is never blanked.
+    """
+    return upsert_availability(
+        item,
+        audio=locales,
+        source=AvailabilitySource.MYDUBLIST.value,
+    )
 
 
 @shared_task(name="Sync dub availability")
