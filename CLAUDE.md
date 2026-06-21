@@ -60,6 +60,20 @@ top-level, not nested).
 The pivot is locked (fork Yamtrack, stay merge-able, private). Stock Yamtrack runs locally.
 Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 → polish → E8.**
 
+**▶ NEXT EPIC = E9 (Crunchyroll sync).** E3/E1/E2/E10 are all done; the v1 personal library
+is imported and LIVE (see E10 below). E9 = port v1's verified Crunchyroll sync as a new
+self-contained integration module. Sources to port: `../Media Tracker v1/gas/Crunchy_*.gs`;
+endpoint list + the one shape nuance in [planning/DESIGN.md](planning/DESIGN.md) →
+"Crunchyroll"; scope/approach in [planning/BACKLOG.md](planning/BACKLOG.md) (E9). The E9 plan
+doc now EXISTS: **[planning/E9-crunchyroll-plan.md](planning/E9-crunchyroll-plan.md)** (DRAFT) —
+blocked on **three maintainer decisions** before `/plan-eng-review`: (1) **auth model** —
+manual bearer-token paste (one-shot importer only) vs. `etp_rt`-cookie/device flow (enables an
+unattended daily beat); (2) **capability scope** — which of C1 dub/sub→E1 / C2 watchlist→status /
+C3 history→progress / C4 upload to port; (3) **catalog breadth** — library-only sync vs. ingest
+the full ~1500-title CR browse catalog. Core design challenge documented in the plan: CR uses its
+own series-id namespace, but the fork keys anime by MAL id — needs a CR-code→MAL-id resolver
+(E10's `out/resolved.json` gives a ~318-title seed map; Jikan title-search fallback for new ones).
+
 **Done / planned:**
 
 - **E3 (hide unused media types) — RESOLVED config-only (2026-06-18).** Upstream already ships
@@ -100,7 +114,7 @@ Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 �
     Celery worker / Postgres (only the pytest SQLite suite + a live MyDubList fetch smoke
     test). Daily beat runs `crontab(hour=4)`; tune `MYDUBLIST_CONFIDENCE` if coverage feels
     thin.
-- **E2 (list filters) — ✅ COMPLETE (all T1–T6 done 2026-06-20). Next epic: E10 (v1 import).**
+- **E2 (list filters) — ✅ COMPLETE (all T1–T6 done 2026-06-20).**
   Full spec + per-task DONE notes: **[planning/E2-list-filters-plan.md](planning/E2-list-filters-plan.md)**.
   Adds rating / language / genre / year filters to the per-type list view.
   - **Key finding (baked into the plan):** genre + year are NOT in the DB (only in live
@@ -128,6 +142,55 @@ Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 �
   - **Dev env:** local `uv` venv is set up (`uv sync --group test`); run Django/pytest via
     `uv run` from `src/` with `DJANGO_SETTINGS_MODULE=config.test_settings` (SQLite). Docker
     Desktop was not running this session.
+- **E10 (v1 data import) — ✅ COMPLETE; import is LIVE (T1–T8, 2026-06-21).** Full
+  spec + per-task notes: **[planning/E10-import-plan.md](planning/E10-import-plan.md)**;
+  runbook: **[planning/e10-import/README.md](planning/e10-import/README.md)**. Standalone
+  script tree under [planning/e10-import/](planning/e10-import/) (**zero `src/` edits**); the
+  load reuses Yamtrack's unmodified CSV importer.
+  - **Maintainer decisions:** sheet via public-link `/browse` fetch · pre-resolve + review
+    report · full-fidelity (episode-level) expansion · **personal library only** (drop the
+    ~1,195 blank-status CR-catalog anime; keep status-bearing + the 39 progressed-but-blank
+    as In progress).
+  - **Pipeline:** `parse.py` (T2) → `resolve.py` (T3, Jikan→MAL + TMDB, cached/throttled,
+    confidence + `overrides.csv`) → `expand.py` (T4) → `transform.py` (T5,
+    `out/yamtrack_import.csv` + `out/review_report.md`) → `dryrun.py` (T6) + `load_dubsub.py`
+    (T7, seeds E1 `AnimeAvailability`). **446 records → 2,147 rows** (435 high/5 med/5 low/1
+    override, 0 unmatched; 16 multi-season anime flagged). Validated through the **real
+    `YamtrackImporter`** on throwaway SQLite (full season/episode FK linking). **35 offline
+    tests pass** (`.venv/Scripts/python -m pytest` from `planning/e10-import/`; local
+    `pytest.ini` disables pytest-django).
+  - **Executed live (2026-06-21):** ran the real `YamtrackImporter` in-container for user
+    `Deadpoolio` (mode *new*; DB backed up to `db/_pre_e10_backup_*`). **Imported movie 95 /
+    anime 318 / tv 32 / season 99 / episode 1602, 0 warnings**; seeded **310 `AnimeAvailability`**
+    dub/sub rows. Verified counts + Lethal Weapon S1 18/18, S2 20/20 + Trigun Stampede
+    (Completed, 7.0, dubs). `overrides.csv` fixes Code Geass→1575, Dragon Raja→44408, So I'm a
+    Spider→37984; Dragon Ball Movies excluded (catch-all). Everything stays local/uncommitted
+    (planning/ is gitignored). Library was empty pre-import.
+  - **Next epic per build order: E9 (Crunchyroll sync).**
+- **Title/UX polish — ✅ SHIPPED + MERGED (2026-06-21, PR #4 → `dev`).** Ad-hoc UX fixes (not
+  an epic), prompted by the maintainer after E10 made the library browsable. (1) **English
+  anime titles:** MAL's canonical `title` is romaji/native (e.g. "Shingeki no Kyojin"); new
+  `mal.get_title()` ([src/app/providers/mal.py](src/app/providers/mal.py)) prefers
+  `alternative_titles.en` (falls back when MAL has none), applied to anime/manga **detail +
+  search + related/recommendations** (the last via nested `…{node{title,alternative_titles}}`
+  field expansion). Gated by `MAL_PREFER_ENGLISH_TITLE` (settings, default `True`, toggleable
+  like `MAL_NSFW`). (2) **Backfill command:** `python manage.py backfill_mal_titles`
+  (`--dry-run`/`--sleep`; NEW additive `app/management/` tree) rewrites already-stored
+  `Item.title` rows — **run live: 326/420 anime titles updated, 0 failed** (94 have no distinct
+  English title and keep romaji). (3) **Two-line cards:** `media_card.html` `line-clamp-1`→
+  `line-clamp-2` + inline 2-line `min-height` (shared card → fixes both the list grid and the
+  detail-page related/recs sections). 4 new offline `get_title` tests + provider/view suites
+  green; `ruff`/`djlint` clean. `.gitignore`/`CLAUDE.md` deliberately kept out of PR #4.
+  - **Fork gotchas learned this session (load-bearing for future work):** the local Docker
+    image is **BAKED** (`build: .`, `pull_policy: build`), `src/` is **NOT** bind-mounted — any
+    `src/` change needs `docker compose up -d --build` to take effect (and clear the provider
+    cache via `cache.clear()` for detail-page re-fetch). The live SQLite DB is the **mounted
+    `./db` volume** (survives rebuilds; back it up before data mutations — see
+    `db/_pre_titles_backup_*`). Tailwind CSS is **prebuilt** (`static/css/main.css`); the image
+    only runs `collectstatic`, never recompiles Tailwind, so a brand-new arbitrary/utility class
+    won't exist in the CSS — reuse already-compiled classes or set the style inline (djlint H021
+    is ignored project-wide). Tests run via the host `uv` venv from `src/` with
+    `DJANGO_SETTINGS_MODULE=config.test_settings`, NOT in-container (the prod venv lacks pytest).
 
 **Backlog + sequence:** [planning/BACKLOG.md](planning/BACKLOG.md). v1 (Google Sheet + Apps
 Script) lives at `../Media Tracker v1` — source for the E10 personal-data import (transform
