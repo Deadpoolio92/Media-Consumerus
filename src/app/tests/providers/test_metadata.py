@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 from django.conf import settings
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from app.models import Episode, Item, MediaTypes, Sources
 from app.providers import (
@@ -21,6 +21,37 @@ from app.providers import (
 )
 
 mock_path = Path(__file__).resolve().parent.parent / "mock_data"
+
+
+@override_settings(MAL_PREFER_ENGLISH_TITLE=True)
+class MalGetTitle(SimpleTestCase):
+    """Unit-test MAL's English-title preference (no network)."""
+
+    def test_prefers_english_when_present(self):
+        """An English alternative title wins over the canonical romaji title."""
+        media = {
+            "title": "Shingeki no Kyojin",
+            "alternative_titles": {"en": "Attack on Titan", "ja": "進撃の巨人"},
+        }
+        self.assertEqual(mal.get_title(media), "Attack on Titan")
+
+    def test_falls_back_when_english_blank(self):
+        """A blank English title falls back to the canonical title."""
+        media = {"title": "Aharen-san wa Hakarenai", "alternative_titles": {"en": ""}}
+        self.assertEqual(mal.get_title(media), "Aharen-san wa Hakarenai")
+
+    def test_falls_back_when_no_alternative_titles(self):
+        """A node without alternative_titles falls back to the canonical title."""
+        self.assertEqual(mal.get_title({"title": "Cowboy Bebop"}), "Cowboy Bebop")
+
+    @override_settings(MAL_PREFER_ENGLISH_TITLE=False)
+    def test_disabled_returns_canonical(self):
+        """With the preference off, the canonical title is returned as-is."""
+        media = {
+            "title": "Shingeki no Kyojin",
+            "alternative_titles": {"en": "Attack on Titan"},
+        }
+        self.assertEqual(mal.get_title(media), "Shingeki no Kyojin")
 
 
 class Metadata(TestCase):

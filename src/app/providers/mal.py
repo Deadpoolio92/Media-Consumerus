@@ -12,7 +12,7 @@ from app.providers import services
 
 logger = logging.getLogger(__name__)
 base_url = "https://api.myanimelist.net/v2"
-base_fields = "title,main_picture,media_type,start_date,end_date,synopsis,status,genres,mean,num_scoring_users,recommendations"  # noqa: E501
+base_fields = "title,alternative_titles,main_picture,media_type,start_date,end_date,synopsis,status,genres,mean,num_scoring_users,recommendations{node{title,alternative_titles}}"  # noqa: E501
 
 
 def handle_error(error):
@@ -40,6 +40,23 @@ def handle_error(error):
     raise services.ProviderAPIError(Sources.MAL.value, error)
 
 
+def get_title(media):
+    """Return the preferred display title for a MAL media node.
+
+    MAL's canonical ``title`` is the romaji/native title (e.g.
+    "Shingeki no Kyojin"); the official English title lives in
+    ``alternative_titles.en`` (e.g. "Attack on Titan"). When
+    ``MAL_PREFER_ENGLISH_TITLE`` is set we use the English title where MAL
+    provides one, falling back to the canonical title otherwise (some titles
+    have no distinct English name).
+    """
+    canonical = media["title"]
+    if not settings.MAL_PREFER_ENGLISH_TITLE:
+        return canonical
+    english = (media.get("alternative_titles") or {}).get("en")
+    return english or canonical
+
+
 def search(media_type, query, page):
     """Search for media on MyAnimeList."""
     cache_key = f"search_{Sources.MAL.value}_{media_type}_{query}_{page}"
@@ -49,7 +66,7 @@ def search(media_type, query, page):
         url = f"{base_url}/{media_type}"
         params = {
             "q": query,
-            "fields": "media_type",
+            "fields": "media_type,alternative_titles",
             "limit": settings.PER_PAGE,
         }
         if settings.MAL_NSFW:
@@ -72,7 +89,7 @@ def search(media_type, query, page):
                 "media_id": media["node"]["id"],
                 "source": Sources.MAL.value,
                 "media_type": media_type,
-                "title": media["node"]["title"],
+                "title": get_title(media["node"]),
                 "image": get_image_url(media["node"]),
             }
             for media in response
@@ -98,7 +115,7 @@ def anime(media_id):
     if data is None:
         url = f"{base_url}/anime/{media_id}"
         params = {
-            "fields": f"{base_fields},num_episodes,average_episode_duration,studios,start_season,broadcast,source,related_anime",  # noqa: E501
+            "fields": f"{base_fields},num_episodes,average_episode_duration,studios,start_season,broadcast,source,related_anime{{node{{title,alternative_titles}}}}",  # noqa: E501
         }
 
         try:
@@ -119,7 +136,7 @@ def anime(media_id):
             "source": Sources.MAL.value,
             "source_url": f"https://myanimelist.net/anime/{media_id}",
             "media_type": MediaTypes.ANIME.value,
-            "title": response["title"],
+            "title": get_title(response),
             "max_progress": num_episodes,
             "image": get_image_url(response),
             "synopsis": get_synopsis(response),
@@ -163,7 +180,7 @@ def manga(media_id):
     if data is None:
         url = f"{base_url}/manga/{media_id}"
         params = {
-            "fields": f"{base_fields},num_chapters,related_manga,recommendations",
+            "fields": f"{base_fields},num_chapters,related_manga{{node{{title,alternative_titles}}}}",  # noqa: E501
         }
 
         try:
@@ -184,7 +201,7 @@ def manga(media_id):
             "source": Sources.MAL.value,
             "source_url": f"https://myanimelist.net/manga/{media_id}",
             "media_type": MediaTypes.MANGA.value,
-            "title": response["title"],
+            "title": get_title(response),
             "image": get_image_url(response),
             "synopsis": get_synopsis(response),
             "max_progress": num_chapters,
@@ -388,7 +405,7 @@ def get_related(related_medias, media_type):
             {
                 "media_id": media["node"]["id"],
                 "source": Sources.MAL.value,
-                "title": media["node"]["title"],
+                "title": get_title(media["node"]),
                 "media_type": media_type,
                 "image": get_image_url(media["node"]),
             }
