@@ -2114,6 +2114,36 @@ class ItemMetadata(models.Model):
         return self.item.__str__()
 
 
+class StreamingLink(models.Model):
+    """A user-added "where to watch" link for an ``Item`` (E6).
+
+    Complements the auto-derived streaming links on the detail page (TMDB's JustWatch
+    aggregator link + the Crunchyroll deep-link): the maintainer pins their own links
+    per title, in addition to the automatic ones. Title-level (a property of the title,
+    like ``AnimeAvailability``/``ItemMetadata``), so it hangs off ``Item`` via a
+    ForeignKey (many links per title) and leaves the constrained upstream ``Item``
+    untouched. For a season the link attaches to that season's ``Item``.
+    """
+
+    item = models.ForeignKey(
+        Item,
+        on_delete=models.CASCADE,
+        related_name="streaming_links",
+    )
+    name = models.CharField(max_length=100)
+    url = models.URLField(max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        """Meta options for the model."""
+
+        ordering = ["created_at"]
+
+    def __str__(self):
+        """Return a label combining the link name and its title."""
+        return f"{self.name} ({self.item})"
+
+
 class Movie(Media):
     """Model for movies."""
 

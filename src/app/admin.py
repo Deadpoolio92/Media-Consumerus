@@ -9,6 +9,7 @@ from app.models import (
     Episode,
     Item,
     ItemMetadata,
+    StreamingLink,
     UserMessage,
 )
 
@@ -75,6 +76,19 @@ class ItemMetadataAdmin(admin.ModelAdmin):
     list_select_related = ["item"]
 
 
+@admin.register(StreamingLink)
+class StreamingLinkAdmin(admin.ModelAdmin):
+    """Custom admin for user-added streaming links (E6).
+
+    Explicit so it isn't swept into ``MediaAdmin`` (which expects
+    status/score/user fields this model doesn't have).
+    """
+
+    search_fields = ["item__title", "name", "url"]
+    list_display = ["name", "item", "url", "created_at"]
+    list_select_related = ["item"]
+
+
 class MediaAdmin(admin.ModelAdmin):
     """Custom admin for regular media model with search and filter options."""
 
@@ -95,6 +109,7 @@ SpecialModels = [
     "UserMessage",
     "AnimeAvailability",
     "ItemMetadata",
+    "StreamingLink",
 ]
 for model in app_models:
     if (
