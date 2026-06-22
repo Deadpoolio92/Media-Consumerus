@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_not_required
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.db.models import prefetch_related_objects
@@ -14,6 +15,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
 from django.utils.timezone import datetime
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -30,6 +32,7 @@ from app.models import (
     Season,
     Sources,
     Status,
+    StreamingLink,
     UserMessage,
 )
 from app.providers import manual, services, tmdb
@@ -1038,3 +1041,66 @@ def service_worker():
         response = HttpResponse(f.read(), content_type="application/javascript")
         response["Service-Worker-Allowed"] = "/"
         return response
+
+
+def _safe_next(request, fallback="/"):
+    """Return the POSTed ``next`` URL if it's a local path, else ``fallback``."""
+    next_url = request.POST.get("next") or ""
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return next_url
+    return fallback
+
+
+@require_POST
+def add_streaming_link(request, source, media_type, media_id, season_number=None):
+    """Add a user-provided "where to watch" link to a title (E6).
+
+    Title-level: the link attaches to the title's ``Item`` (created on demand if the
+    title isn't tracked yet), mirroring ``sync_metadata``'s ``Item`` upsert. Validates
+    the URL with the model field's validator, then redirects back to the detail page.
+    """
+    next_url = _safe_next(request)
+    name = (request.POST.get("name") or "").strip()
+    url = (request.POST.get("url") or "").strip()
+
+    if not name or not url:
+        messages.error(request, "A streaming link needs both a name and a URL.")
+        return redirect(next_url)
+
+    link = StreamingLink(name=name[:100], url=url)
+    try:
+        link.full_clean(exclude=["item"])
+    except ValidationError:
+        messages.error(request, "That doesn't look like a valid URL.")
+        return redirect(next_url)
+
+    item, _ = Item.objects.get_or_create(
+        media_id=media_id,
+        source=source,
+        media_type=media_type,
+        season_number=season_number,
+        defaults={
+            "title": (request.POST.get("title") or "").strip() or media_id,
+            "image": (request.POST.get("image") or "").strip() or settings.IMG_NONE,
+        },
+    )
+    link.item = item
+    link.save()
+    logger.info("Added streaming link %r to %s", name, item)
+    messages.success(request, f"Added streaming link: {name}")
+    return redirect(next_url)
+
+
+@require_POST
+def delete_streaming_link(request, link_id):
+    """Delete a user-provided streaming link (E6)."""
+    link = get_object_or_404(StreamingLink, pk=link_id)
+    next_url = _safe_next(request)
+    logger.info("Removing streaming link %r from %s", link.name, link.item)
+    link.delete()
+    messages.success(request, "Removed streaming link")
+    return redirect(next_url)

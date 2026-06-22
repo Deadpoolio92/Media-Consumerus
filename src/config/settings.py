@@ -567,6 +567,10 @@ USER_MESSAGE_RETENTION_DAYS = config(
 # MyDubList dub-availability sync (app/providers/mydublist.py). Confidence tier:
 # low (>=1 source) / normal (>=2) / high (>=3) / very-high (>=4).
 MYDUBLIST_CONFIDENCE = config("MYDUBLIST_CONFIDENCE", default="high")
+# E6: render streaming "where to watch" links on the detail page — the JustWatch
+# region link on tv/movie/season provider logos + a Crunchyroll deep-link for
+# MAL-sourced anime. Off reverts to stock rendering (unlinked logos, no CR card).
+STREAMING_LINKS_ENABLED = config("STREAMING_LINKS_ENABLED", default=True, cast=bool)
 # Crunchyroll sync (E9, integrations/crunchyroll/). E9a = the one-off
 # `backfill_crunchyroll_availability` command; E9b = the daily `Sync Crunchyroll` beat
 # (watchlist->status + history->progress). All admin-level secrets, kept in the
