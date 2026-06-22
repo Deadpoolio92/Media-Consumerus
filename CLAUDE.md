@@ -64,12 +64,12 @@ Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 �
 [planning/E9-crunchyroll-plan.md](planning/E9-crunchyroll-plan.md)): E9a (C1 dub/sub) + E9b
 (C2/C3 status+progress). Both are now done** — E9a shipped+merged (PR #5), E9b built 2026-06-21.
 
-**▶ NEXT = polish, then E8** (build order E3→E1→E2→E10→E9→polish→E8). E3/E1/E2/E10/E9 are all
-done and merged; see the E9 bullet below + the plan doc's E9b notes/runbook. **E9b is fully
-LIVE — the profile-bind live-verify gate PASSED (2026-06-21):** `sync_crunchyroll_status` ran
-in-container against the `LK` profile (confirmed, no fail-closed), C2/C3 wrote clean (0 errors),
-and the daily 05:00 beat now keeps status/progress fresh. Start a fresh chat; this resume note +
-the plan doc are the entry point.
+**▶ NEXT = polish (E7 → E5), then E8** (build order E3→E1→E2→E10→E9→polish (E6/E7/E5)→E8).
+E3/E1/E2/E10/E9 are all done+merged; **E6 is now BUILT** (2026-06-22, see the E6 bullet below).
+**E9b is fully LIVE — the profile-bind live-verify gate PASSED (2026-06-21):**
+`sync_crunchyroll_status` ran in-container against the `LK` profile (confirmed, no fail-closed),
+C2/C3 wrote clean (0 errors), and the daily 05:00 beat now keeps status/progress fresh. Start a
+fresh chat; this resume note + the plan docs are the entry point.
 
 **Done / planned:**
 
@@ -219,6 +219,34 @@ the plan doc are the entry point.
     **0 errors**. The daily 05:00 beat is now live. (6 multi-season-skipped + 2 unmatched are the
     handle-by-hand titles; revisit if needed.)
   - **Next per build order: polish (E6/E7/E5), then E8.**
+
+- **E6 (streaming-provider links) — ✅ BUILT (2026-06-22; T1–T5 + E6b manual links).** Plan +
+  per-task notes: **[planning/E6-streaming-links-plan.md](planning/E6-streaming-links-plan.md)**.
+  Makes the detail-page STREAMING area actually *link* somewhere, and lets the maintainer add
+  their own links. Most logic in a NEW `app/templatetags/streaming_tags.py`.
+  - **tv/movie/season:** wrap the existing TMDB watch-provider logos in the **JustWatch region
+    link** (`providers[region].link` — the only link TMDB's `watch/providers` exposes; per-
+    provider/per-episode deep links are not available) + a "Where to watch" line.
+  - **anime:** a region-independent **"Crunchyroll"** deep-link (`/series/{code}`) built from the
+    E9a CR↔MAL seed via a new `integrations/crunchyroll/resolve.py:series_url(mal_id)`. Gated to
+    `source==mal` + seed hit (AniList-sourced anime and seed misses get no link).
+  - **E6b — manual links:** NEW `StreamingLink` model (`FK→Item`, migration `0064`, admin) lets
+    the maintainer add their own per-title links (display name + URL) via a collapsible form;
+    each is removable. The STREAMING card now **always shows for watchable types**
+    (anime/tv/movie/season — `is_streamable` tag) so links can be added even where there's no
+    auto data. Endpoints `add_streaming_link`/`delete_streaming_link` (plain POST + host-checked
+    `next` redirect, no HTMX); the add view upserts the `Item` on demand like `sync_metadata`.
+  - **Merge-touch:** the base E6 was template-tag-only (no view edit). **E6b is additive but does
+    touch upstream `views.py`/`urls.py`/`models.py`/`admin.py`** (new model+migration `0064`, two
+    appended views, three URL names, admin reg) — all append-only, low conflict risk.
+  - One revert flag `STREAMING_LINKS_ENABLED` (default `True`); off → stock rendering for the
+    auto links. **107 tests pass** across views + tags + resolve (NEW `test_streaming_tags.py`,
+    `app/tests/views/test_streaming_links.py`, + `SeriesUrlTests`); `ruff`/`djlint --lint` clean;
+    `makemigrations --check` clean (migration `0064` is intended). **Not yet committed; not yet
+    live-verified** in-container (host `uv`/SQLite only; TMDB `link` field assumed present).
+    **Live needs a `--build`** (new migration runs on container start; Tailwind classes used are
+    all already compiled — verified).
+  - **Next per build order: E7 (game extras), then E5 (calendar).**
 
 **Backlog + sequence:** [planning/BACKLOG.md](planning/BACKLOG.md). v1 (Google Sheet + Apps
 Script) lives at `../Media Tracker v1` — source for the E10 personal-data import (transform
