@@ -368,3 +368,99 @@ class MediaDetailsViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Japanese")
         self.assertNotContains(response, "CC BY 4.0")
+
+    @patch("app.providers.services.get_media_metadata")
+    def test_movie_with_providers_shows_justwatch_link(self, mock_get_metadata):
+        """E6: tv/movie provider logos link to the region's JustWatch page."""
+        justwatch = "https://www.themoviedb.org/movie/238/watch?locale=US"
+        mock_get_metadata.return_value = {
+            "media_id": "238",
+            "title": "Test Movie",
+            "media_type": MediaTypes.MOVIE.value,
+            "source": Sources.TMDB.value,
+            "image": "http://example.com/image.jpg",
+            "providers": {
+                "US": {
+                    "link": justwatch,
+                    "flatrate": [
+                        {
+                            "provider_id": 8,
+                            "provider_name": "Netflix",
+                            "logo_path": "/netflix.jpg",
+                            "display_priority": 1,
+                        },
+                    ],
+                },
+            },
+        }
+        self.user.watch_provider_region = "US"
+        self.user.save(update_fields=["watch_provider_region"])
+
+        response = self.client.get(
+            reverse(
+                "media_details",
+                kwargs={
+                    "source": Sources.TMDB.value,
+                    "media_type": MediaTypes.MOVIE.value,
+                    "media_id": "238",
+                    "title": "test-movie",
+                },
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, justwatch)
+        self.assertContains(response, "Where to watch")
+        self.assertNotContains(response, "crunchyroll.com/series")
+
+    @patch("app.providers.services.get_media_metadata")
+    def test_anime_with_cr_seed_shows_crunchyroll_link(self, mock_get_metadata):
+        """E6: a seeded MAL anime renders a Crunchyroll deep-link."""
+        mock_get_metadata.return_value = {
+            "media_id": "51553",  # Witch Hat Atelier — present in the CR<->MAL seed
+            "title": "Test Anime",
+            "media_type": MediaTypes.ANIME.value,
+            "source": Sources.MAL.value,
+            "image": "http://example.com/image.jpg",
+        }
+
+        response = self.client.get(
+            reverse(
+                "media_details",
+                kwargs={
+                    "source": Sources.MAL.value,
+                    "media_type": MediaTypes.ANIME.value,
+                    "media_id": "51553",
+                    "title": "test-anime",
+                },
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "https://www.crunchyroll.com/series/GT00258001")
+
+    @patch("app.providers.services.get_media_metadata")
+    def test_anime_without_cr_seed_has_no_crunchyroll_link(self, mock_get_metadata):
+        """E6: an anime absent from the seed renders no Crunchyroll link."""
+        mock_get_metadata.return_value = {
+            "media_id": "999999999",
+            "title": "Test Anime",
+            "media_type": MediaTypes.ANIME.value,
+            "source": Sources.MAL.value,
+            "image": "http://example.com/image.jpg",
+        }
+
+        response = self.client.get(
+            reverse(
+                "media_details",
+                kwargs={
+                    "source": Sources.MAL.value,
+                    "media_type": MediaTypes.ANIME.value,
+                    "media_id": "999999999",
+                    "title": "test-anime",
+                },
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "crunchyroll.com/series")

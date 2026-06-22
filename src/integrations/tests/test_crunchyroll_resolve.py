@@ -38,6 +38,28 @@ class SeedMapTests(SimpleTestCase):
         self.assertEqual(resolve.load_cr_mal_map().get("GT00258001"), "51553")
 
 
+class SeriesUrlTests(SimpleTestCase):
+    """series_url() — the E6 CR deep-link builder over the seed map."""
+
+    def test_seed_hit_builds_series_url(self):
+        """A MAL id in the seed yields the /series/{code} web URL."""
+        self.assertEqual(
+            resolve.series_url("51553"),
+            "https://www.crunchyroll.com/series/GT00258001",
+        )
+
+    def test_accepts_int_mal_id(self):
+        """media_id arrives as an int from the provider; it's coerced to str."""
+        self.assertEqual(
+            resolve.series_url(51553),
+            "https://www.crunchyroll.com/series/GT00258001",
+        )
+
+    def test_seed_miss_returns_none(self):
+        """An id absent from the seed yields None (no guessing a code)."""
+        self.assertIsNone(resolve.series_url("999999999"))
+
+
 class NormalizeTests(SimpleTestCase):
     """The shared title normalizer (ported from E10)."""
 

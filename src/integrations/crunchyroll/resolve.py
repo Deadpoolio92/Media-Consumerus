@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 SEED_PATH = Path(__file__).parent / "data" / "cr_mal_map.json"
 
+# Public web base for series deep-links (E6). CR redirects the code-only
+# /series/{code} URL to the canonical slug, so no slug lookup is needed.
+WEB_BASE = "https://www.crunchyroll.com"
+
 # Jikan (unofficial MAL API, no key) — same source E10's resolver used. Kept behind
 # _jikan_search so tests stub exactly one function and the rate-limit sleep never runs
 # under test.
@@ -65,6 +69,19 @@ def mal_to_cr():
     find the catalog entry. Treat the result as read-only.
     """
     return {mal_id: code for code, mal_id in load_cr_mal_map().items()}
+
+
+def series_url(mal_id):
+    """Return the Crunchyroll series web URL for a MAL id, or ``None`` (E6).
+
+    A library anime is keyed by MAL id; the E9a CR<->MAL seed maps it to its CR
+    series code, whose public web URL is ``/series/{code}`` (CR redirects the
+    code-only URL to the canonical slug). Returns ``None`` when the id isn't in the
+    seed -- we don't guess a code (the resolver's skip-don't-guess rule). Used by
+    E6's streaming-link tag.
+    """
+    code = mal_to_cr().get(str(mal_id))
+    return f"{WEB_BASE}/series/{code}" if code else None
 
 
 # --------------------------------------------------------------------------- #

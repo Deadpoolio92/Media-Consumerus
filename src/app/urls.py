@@ -86,5 +86,21 @@ urlpatterns = [
         name="search_parent_season",
     ),
     path("statistics", views.statistics, name="statistics"),
+    # E6: user-added streaming links (with/without a season number)
+    path(
+        "details/streaming/add/<source:source>/<media_type:media_type>/<str:media_id>",
+        views.add_streaming_link,
+        name="add_streaming_link",
+    ),
+    path(
+        "details/streaming/add/<source:source>/<media_type:media_type>/<str:media_id>/<int:season_number>",
+        views.add_streaming_link,
+        name="add_streaming_link",
+    ),
+    path(
+        "details/streaming/delete/<int:link_id>",
+        views.delete_streaming_link,
+        name="delete_streaming_link",
+    ),
     path("serviceworker.js", views.service_worker, name="service_worker"),
 ]
