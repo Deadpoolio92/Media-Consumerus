@@ -1,6 +1,7 @@
+name: media-consumerus
+
 services:
-  yamtrack:
-    container_name: yamtrack
+  app:
     image: ghcr.io/fuzzygrim/yamtrack
     restart: unless-stopped
     depends_on:
@@ -12,10 +13,9 @@ services:
     volumes:
       - ./db:/yamtrack/db
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${YAMTRACK_PORT:-7040}:8000"
 
   redis:
-    container_name: yamtrack-redis
     image: redis:8-alpine
     restart: unless-stopped
     volumes:

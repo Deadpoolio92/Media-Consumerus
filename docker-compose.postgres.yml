@@ -1,6 +1,7 @@
+name: media-consumerus
+
 services:
-  yamtrack:
-    container_name: yamtrack
+  app:
     image: ghcr.io/fuzzygrim/yamtrack
     restart: unless-stopped
     depends_on:
@@ -16,11 +17,10 @@ services:
       - DB_PASSWORD=yamtrack
       - DB_PORT=5432
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${YAMTRACK_PORT:-7040}:8000"
 
   db:
     image: postgres:16-alpine
-    container_name: yamtrack-db
     environment:
       - POSTGRES_DB=yamtrack
       - POSTGRES_USER=yamtrack
@@ -30,7 +30,6 @@ services:
     restart: unless-stopped
 
   redis:
-    container_name: yamtrack-redis
     image: redis:8-alpine
     restart: unless-stopped
     volumes:
