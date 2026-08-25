@@ -34,15 +34,25 @@ branch `dev`; `upstream` = `FuzzyGrim/Yamtrack`, push-disabled). The planning do
 old scratch repo now live here in [planning/](planning/). Yamtrack's own files (`src/`,
 `docs/`, `README.md`, `LICENSE`, `docker-compose*.yml`) are upstream's — leave them
 untouched (see Fork strategy). No enhancement code written yet, but stock Yamtrack now runs
-locally at <http://localhost:8000>.
+locally at <http://localhost:7040>.
 
 **Local run (merge-safe).** Config lives in a git-ignored `docker-compose.override.yml`
-(via `.git/info/exclude`, so it never touches the tracked compose file). It builds from the
+(via `.git/info/exclude`, so it never touches the tracked compose file — the one deliberate
+exception is the port line, see Ports + naming below). It builds from the
 local `Dockerfile` (image `media-consumerus:local`, NOT the published ghcr image — so `src/`
 changes actually run), and sets `SECRET`, `TMDB_API`, `REGISTRATION`, `ADMIN_ENABLED` inline
 (no separate `.env`). Run: `docker compose up -d --build`. Note: after registering your
 account, set `REGISTRATION=False` in the override and re-up to lock it to you. Optional
 provider keys (IGDB for games) are omitted so Yamtrack's bundled defaults apply.
+
+**Ports + naming (2026-08-25, per the `reserved-port-blocks` preference).** The host port is
+`127.0.0.1:7040` (block 7040–7049, `x0` = app) via `${YAMTRACK_PORT:-7040}` in
+`docker-compose.yml` — a deliberate one-line edit to an upstream file (small merge surface;
+override with a local `.env` if 7040 is taken). Compose project is `media-consumerus`;
+service is `app` → auto-named containers `media-consumerus-app-1` / `media-consumerus-redis-1`
+(no `container_name:` — matches the other local projects). Use `docker compose exec app …`
+where older runbooks say `exec yamtrack …`. Account data is untouched: still the `./db`
+SQLite bind mount.
 
 **Windows gotcha (fixed, committed):** a `.gitattributes` forces LF on `*.sh`/`*.conf`/
 `entrypoint.sh`/`Dockerfile`. Without it, `core.autocrlf=true` checks them out as CRLF and

@@ -27,7 +27,7 @@ To log in to the admin interface, you will need an admin account. You can either
 1. **Open Django Shell**: If you are using Docker, you can access the Django shell by running the following command in your terminal:
 
       ```bash
-      docker exec -it yamtrack python manage.py shell
+      docker compose exec app python manage.py shell
       ```
 
 2. **Set Admin Privileges**: Find the user you want to promote to admin. Replace `username` with the actual username of the user.
@@ -41,7 +41,7 @@ To log in to the admin interface, you will need an admin account. You can either
 1. **Open Django Shell**: As mentioned above, access the Django shell using Docker:
 
       ```bash
-      docker exec -it yamtrack python manage.py shell
+      docker compose exec app python manage.py shell
       ```
 
 2. **Create a New User**: Use the following code to create a new user. Replace `new_username`, `new_password`, and `new_email` with the desired values.

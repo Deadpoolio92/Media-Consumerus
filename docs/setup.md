@@ -65,7 +65,7 @@ If your system uses the older Compose command, replace `docker compose` with `do
 Open Yamtrack at:
 
 ```text
-http://localhost:8000
+http://localhost:7040
 ```
 
 If you changed the port mapping in the Compose file, use the port you configured.
@@ -90,11 +90,11 @@ If you see `403 Forbidden` behind a proxy, check that `URLS` exactly matches the
 Check the Yamtrack container logs:
 
 ```bash
-docker logs -f yamtrack
+docker logs -f media-consumerus-app-1
 ```
 
 Check the Redis container logs:
 
 ```bash
-docker logs -f yamtrack-redis
+docker logs -f media-consumerus-redis-1
 ```
