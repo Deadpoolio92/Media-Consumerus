@@ -2,6 +2,7 @@
 
 from unittest.mock import patch
 
+import requests
 from django.core.cache import cache
 from django.test import SimpleTestCase
 
@@ -202,3 +203,124 @@ class JikanOutageTests(SimpleTestCase):
             self.assertIsNone(resolve.resolve_title_to_mal("NeverSeen"))
         miss_search.assert_called_once()  # miss cached -> no repeat Jikan call
         self.assertEqual(cache.get(key), resolve._MISS)
+
+
+def _resp(status, payload=None, retry_after=None):
+    """Build a requests.Response with a configurable status/payload/header."""
+    r = requests.Response()
+    r.status_code = status
+    r.headers["Retry-After"] = retry_after or ""
+    r.json = lambda: (payload if payload is not None else {})
+    return r
+
+
+def _ok_resp(mal_id="123", title="Foo"):
+    """Build a 200 search response containing one candidate."""
+    payload = {
+        "data": [{
+            "mal_id": mal_id,
+            "title": title,
+            "title_english": None,
+            "title_japanese": None,
+            "titles": [],
+        }],
+    }
+    return _resp(200, payload=payload)
+
+
+class JikanRetryHelperTests(SimpleTestCase):
+    """_retryable / _retry_delay — transient vs fatal + capped backoff."""
+
+    def test_retryable_classification(self):
+        """Network errors, 429, and 5xx are transient; 4xx/200 are not."""
+        self.assertTrue(resolve._retryable(None))  # no HTTP response
+        self.assertTrue(resolve._retryable(429))
+        self.assertTrue(resolve._retryable(500))
+        self.assertTrue(resolve._retryable(503))
+        self.assertFalse(resolve._retryable(200))
+        self.assertFalse(resolve._retryable(400))
+        self.assertFalse(resolve._retryable(404))
+
+    def test_retry_delay_honors_retry_after_and_caps(self):
+        """Retry-After is used; huge values and backoff are capped at JIKAN_MAX_WAIT."""
+        self.assertEqual(resolve._retry_delay(_resp(429, retry_after="2"), 1), 2.0)
+        big = _resp(429, retry_after="999")
+        self.assertEqual(resolve._retry_delay(big, 1), resolve.JIKAN_MAX_WAIT)
+        self.assertEqual(
+            resolve._retry_delay(None, 9), resolve.JIKAN_MAX_WAIT,  # backoff capped
+        )
+        self.assertLess(
+            resolve._retry_delay(None, 1), resolve._retry_delay(None, 3),
+        )  # grows with attempt
+
+
+class JikanRetrySearchTests(SimpleTestCase):
+    """_jikan_search retries transient 429/5xx/network errors before giving up."""
+
+    @staticmethod
+    def _sleepless():
+        return patch.object(resolve.time, "sleep")
+
+    def test_retries_on_429_then_succeeds(self):
+        """A rate-limited first hit is retried (honouring Retry-After) and resolves."""
+        with (
+            patch.object(
+                resolve.requests, "get",
+                side_effect=[_resp(429, retry_after="2"), _ok_resp()],
+            ) as mock_get,
+            self._sleepless(),
+        ):
+            cands = resolve._jikan_search("Foo")
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(cands[0]["mal_id"], "123")
+
+    def test_retries_on_5xx_then_succeeds(self):
+        """A 504 gateway blip is retried and the title still resolves."""
+        with (
+            patch.object(
+                resolve.requests, "get", side_effect=[_resp(504), _ok_resp()],
+            ) as mock_get,
+            self._sleepless(),
+        ):
+            cands = resolve._jikan_search("Foo")
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(cands[0]["mal_id"], "123")
+
+    def test_retries_on_connection_error_then_succeeds(self):
+        """A transient connection failure is retried."""
+        with (
+            patch.object(
+                resolve.requests, "get",
+                side_effect=[requests.exceptions.ConnectionError, _ok_resp()],
+            ) as mock_get,
+            self._sleepless(),
+        ):
+            cands = resolve._jikan_search("Foo")
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(len(cands), 1)
+
+    def test_exhausted_retries_raise(self):
+        """Persistent 429/5xx across all attempts raise JikanSearchError (no hang)."""
+        for status in (429, 503, 504):
+            with (
+                patch.object(
+                    resolve.requests, "get", return_value=_resp(status),
+                ) as mock_get,
+                patch.object(resolve.time, "sleep"),
+                self.assertRaises(resolve.JikanSearchError),
+            ):
+                resolve._jikan_search("Foo")
+            # Every attempt is spent; failure is counted (uncached by callers).
+            self.assertEqual(mock_get.call_count, resolve.JIKAN_MAX_ATTEMPTS)
+
+    def test_non_transient_4xx_fails_immediately(self):
+        """A 400 is fatal on the first request, not hammered with retries."""
+        with (
+            patch.object(
+                resolve.requests, "get", return_value=_resp(400),
+            ) as mock_get,
+            patch.object(resolve.time, "sleep"),
+            self.assertRaises(resolve.JikanSearchError),
+        ):
+            resolve._jikan_search("Foo")
+        mock_get.assert_called_once()

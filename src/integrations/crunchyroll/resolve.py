@@ -55,6 +55,15 @@ JIKAN_URL = "https://api.jikan.moe/v4/anime"
 JIKAN_TIMEOUT = 25
 SEARCH_LIMIT = 6
 
+# 429 (rate-limited) and 5xx (Jikan gateway timeouts) are transient: retry with capped
+# exponential backoff instead of failing the title on the first hit. A dead Jikan still
+# fails fast (a bounded number of attempts, never a month-long cached miss).
+JIKAN_MAX_ATTEMPTS = 4
+JIKAN_BASE_BACKOFF = 1.5
+JIKAN_MAX_WAIT = 8
+JIKAN_RATE_LIMITED = 429
+JIKAN_INTERNAL_ERROR = 500
+
 # Resolutions are stable; cache hits and misses for a month so the daily beat is
 # Jikan-polite. A miss is cached as the empty string (distinct from a cache absence).
 RESOLVE_CACHE_TTL = 60 * 60 * 24 * 30
@@ -116,26 +125,77 @@ def normalize(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _retryable(code):
+    """Return True iff a Jikan failure is transient and worth retrying.
+
+    ``None`` is a network/timeout error before any HTTP response; ``429``
+    (``JIKAN_RATE_LIMITED``) is a rate limit (the main burst symptom on the daily
+    beat); ``>= JIKAN_INTERNAL_ERROR`` is a Jikan gateway blip. A 4xx client error
+    (e.g. a malformed ``q``) is NOT transient — retrying it would just burn the same
+    rate-limit budget.
+    """
+    return (
+        code is None
+        or code == JIKAN_RATE_LIMITED
+        or (code is not None and code >= JIKAN_INTERNAL_ERROR)
+    )
+
+
+def _retry_delay(resp, attempt):
+    """Seconds to wait before the next attempt (capped so a dead Jikan can't stall).
+
+    A 429 honours Jikan's ``Retry-After`` (capped); otherwise capped exponential
+    backoff as ``attempt`` grows. ``resp`` is the last response, or ``None`` on a
+    network error with no response.
+    """
+    if resp is not None:
+        raw = resp.headers.get("Retry-After")
+        if raw:
+            try:
+                return min(float(raw), JIKAN_MAX_WAIT)
+            except (TypeError, ValueError):
+                pass
+    return min(JIKAN_BASE_BACKOFF * (2 ** (attempt - 1)), JIKAN_MAX_WAIT)
+
+
 def _jikan_search(query):
     """Return Jikan anime candidates for ``query`` as ``[{mal_id, titles}]``.
 
     Returns ``[]`` only for a *successful* search that found no candidates. A network /
     response / parse failure raises :class:`JikanSearchError` — so the caller can
     distinguish a genuine miss (cacheable) from an outage (never cache). Tests stub
-    this one function; the rate-limit sleep never runs under test.
+    this one function; the rate-limit sleep/retries never run under test.
+
+    Transient failures (429 rate-limit, 5xx, timeouts, connection errors) are retried
+    up to ``JIKAN_MAX_ATTEMPTS`` with capped backoff (:func:`_retry_delay`, honouring
+    ``Retry-After`` on 429), so a momentary blip resolves instead of being counted as
+    an error. Once every attempt fails we raise, leaving the key **uncached** so the
+    next beat retries rather than carrying a stale month-long miss (the 2026-08-24
+    outage bug).
     """
-    time.sleep(0.5)  # Jikan is ~3 req/s; be polite (never runs under test — stubbed)
-    try:
-        resp = requests.get(
-            JIKAN_URL,
-            params={"q": query, "limit": SEARCH_LIMIT},
-            timeout=JIKAN_TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except (requests.exceptions.RequestException, ValueError) as exc:
-        logger.warning("Jikan search failed for %r", query)
-        raise JikanSearchError(query) from exc
+    data = None
+    for attempt in range(1, JIKAN_MAX_ATTEMPTS + 1):
+        time.sleep(0.5)  # Jikan is ~3 req/s; be polite (never runs under test)
+        resp = None
+        try:
+            resp = requests.get(
+                JIKAN_URL,
+                params={"q": query, "limit": SEARCH_LIMIT},
+                timeout=JIKAN_TIMEOUT,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            break
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            code = None if resp is None else resp.status_code
+            if not _retryable(code) or attempt == JIKAN_MAX_ATTEMPTS:
+                logger.warning(
+                    "Jikan search failed for %r after %s attempts",
+                    query,
+                    JIKAN_MAX_ATTEMPTS,
+                )
+                raise JikanSearchError(query) from exc
+            time.sleep(_retry_delay(resp, attempt))
 
     candidates = []
     for node in (data or {}).get("data", []):
