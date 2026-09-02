@@ -18,3 +18,4 @@ TODO.txt
 .codex
 .cache
 .gstack/
+.claude/settings.local.json

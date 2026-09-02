@@ -1,0 +1,23 @@
+# arsenal.yml — managed by project-deploy.ps1 / project-sync.ps1 (Arsenal).
+# Hand-editing: you may add or remove items (name + type suffice) and set
+# customized: true to protect local edits. Other fields are machine-managed.
+project: Media Consumerus
+created: 2026-08-25
+items:
+  # --- standing defaults ---
+  - name: graphify
+    type: skill
+  - name: graphify-nudge
+    type: hook
+  - name: ponytail
+    type: skill
+  - name: ponytail-review
+    type: skill
+  - name: ponytail-audit
+    type: skill
+  - name: ponytail-debt
+    type: skill
+  - name: ponytail-mode-hooks
+    type: hook
+  - name: secrets-guard
+    type: hook
