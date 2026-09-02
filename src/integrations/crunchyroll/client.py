@@ -107,7 +107,35 @@ def _device_id():
     return getattr(settings, "CRUNCHYROLL_DEVICE_ID", "") or DEFAULT_DEVICE_ID
 
 
-def _cr_request(method, url, *, params=None, data=None, headers, none_on=()):
+class Token:
+    """A CR access token that can refresh itself when it expires (E9.5).
+
+    Wraps the short-lived access token string plus a ``refresh`` callable (which
+    re-mints from the stored ``etp_rt``). ``client`` content calls transparently
+    refresh on a 401 ``auth_error`` and retry once, so a long sync that outlives the
+    token's lifetime keeps working instead of erroring on every later call. A plain
+    ``str`` token is still accepted everywhere (no refresh).
+    """
+
+    def __init__(self, value, refresh):
+        """Wrap an access token string plus a callable that re-mints a fresh one."""
+        self._value = value
+        self._refresh = refresh
+
+    @property
+    def value(self):
+        """The current access token string."""
+        return self._value
+
+    def refresh(self):
+        """Re-mint a fresh access token and return it."""
+        self._value = self._refresh()
+        return self._value
+
+
+def _cr_request(
+    method, url, *, params=None, data=None, headers=None, none_on=(), token=None,
+):
     """Call the CR API via the shared session, surfacing the response body on error.
 
     CR is unofficial: failures explain themselves in the JSON body
@@ -116,7 +144,13 @@ def _cr_request(method, url, *, params=None, data=None, headers, none_on=()):
     instead of a bare ``400 Bad Request``. Statuses listed in ``none_on`` return
     ``None`` instead of raising (e.g. a 404 for a series pulled from CR is a skip, not
     an error).
+
+    When ``token`` is a :class:`Token`, a 401 ``auth_error`` (the short-lived access
+    token expired mid-run) transparently refreshes it and retries once — so a long sync
+    doesn't fail on every call after the token dies.
     """
+    if token is not None:
+        headers = _auth_headers(token)
     try:
         return services.api_request(
             PROVIDER,
@@ -130,6 +164,26 @@ def _cr_request(method, url, *, params=None, data=None, headers, none_on=()):
         status = exc.response.status_code if exc.response is not None else "?"
         if status in none_on:
             return None
+        if status == requests.codes.unauthorized and isinstance(token, Token):
+            token.refresh()
+            headers = _auth_headers(token)
+            try:
+                return services.api_request(
+                    PROVIDER,
+                    method,
+                    url,
+                    params=params,
+                    data=data,
+                    headers=headers,
+                )
+            except requests.exceptions.HTTPError as exc2:
+                status = exc2.response.status_code if exc2.response is not None else "?"
+                if status in none_on:
+                    return None
+                body = exc2.response.text[:500] if exc2.response is not None else ""
+                endpoint = url.split("?", 1)[0]
+                msg = f"Crunchyroll {method} {endpoint} failed ({status}): {body}"
+                raise ValueError(msg) from exc2
         body = exc.response.text[:500] if exc.response is not None else ""
         endpoint = url.split("?", 1)[0]
         msg = f"Crunchyroll {method} {endpoint} failed ({status}): {body}"
@@ -239,9 +293,13 @@ def account_login(account_username, account_password):
 
 
 def _auth_headers(token):
-    """Bearer headers for catalog/series calls (token from :func:`mint_token`)."""
+    """Bearer headers for catalog/series calls (token from :func:`mint_token`).
+
+    Accepts a plain ``str`` or a :class:`Token` (uses its current ``value``).
+    """
+    value = token.value if isinstance(token, Token) else token
     return {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer {value}",
         "User-Agent": USER_AGENT,
         "Accept": "*/*",
     }
@@ -285,7 +343,6 @@ def fetch_catalog(token):
     entries without an ``id`` are dropped. HTTP/network errors surface via
     :func:`_cr_request`.
     """
-    headers = _auth_headers(token)
     raw = []
     start = 0
     for _ in range(CATALOG_MAX_PAGES):
@@ -298,7 +355,7 @@ def fetch_catalog(token):
                 "sort_by": "alphabetical",
                 "locale": CATALOG_LOCALE,
             },
-            headers=headers,
+            token=token,
         )
         page = (payload or {}).get("data") or []
         raw.extend(page)
@@ -319,8 +376,8 @@ def series(token, code):
     payload = _cr_request(
         "GET",
         SERIES_URL.format(code=code),
-        headers=_auth_headers(token),
         none_on=(404,),
+        token=token,
     )
     data = (payload or {}).get("data") or []
     if not data:
@@ -340,7 +397,7 @@ def list_profiles(token):
     their ``CRUNCHYROLL_PROFILE_ID`` early and verifies the token + endpoint shape ahead
     of E9b. The profile **switch** mechanism (select/confirm, the guard) lands in E9b.
     """
-    payload = _cr_request("GET", MULTIPROFILE_URL, headers=_auth_headers(token))
+    payload = _cr_request("GET", MULTIPROFILE_URL, token=token)
     return (payload or {}).get("profiles") or []
 
 
@@ -355,7 +412,7 @@ def account_id(token):
     ``accounts/v1/me`` echoes the account the token authenticates as; v1 keyed every
     user call off this id. Raises ``ValueError`` if the response carries no id.
     """
-    payload = _cr_request("GET", ME_URL, headers=_auth_headers(token))
+    payload = _cr_request("GET", ME_URL, token=token)
     acct = (payload or {}).get("account_id")
     if not acct:
         msg = "Crunchyroll /accounts/v1/me response had no account_id"
@@ -416,7 +473,7 @@ def fetch_watchlist(token, account):
         "GET",
         WATCHLIST_URL.format(account=account),
         params={"order": "desc", "n": WATCHLIST_PAGE_SIZE},
-        headers=_auth_headers(token),
+        token=token,
     )
     entries = []
     for row in (payload or {}).get("data") or []:
@@ -463,7 +520,7 @@ def fetch_history(token, account):
         "GET",
         HISTORY_URL.format(account=account),
         params={"page_size": HISTORY_PAGE_SIZE},
-        headers=_auth_headers(token),
+        token=token,
     )
     rows = []
     for row in (payload or {}).get("data") or []:
@@ -484,8 +541,8 @@ def seasons(token, code):
     payload = _cr_request(
         "GET",
         SEASONS_URL.format(code=code),
-        headers=_auth_headers(token),
         none_on=(404,),
+        token=token,
     )
     return [
         {"season_number": node.get("season_number"), "title": node.get("title", "")}

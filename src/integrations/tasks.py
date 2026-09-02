@@ -221,8 +221,15 @@ def run_crunchyroll_sync(user, etp_rt, profile_id):
     that can't be confirmed) so the caller can record/report it; returns
     ``{"c2": …, "c3": …}`` counts on success. ``etp_rt`` is auto-renewed on expiry via
     :func:`mint_with_renewal` when the account credential is configured (E9.5).
+
+    The token is wrapped in a :class:`client.Token` so a 401 mid-run (the short-lived
+    access token expiring during the long C3 phase) transparently re-mints and retries
+    instead of erroring on every later call.
     """
-    token = mint_with_renewal(etp_rt, profile_id)
+    token = client.Token(
+        mint_with_renewal(etp_rt, profile_id),
+        lambda: mint_with_renewal(etp_rt, profile_id),
+    )
     account = client.account_id(token)
     # Mandatory shared-account guard: never write another profile's data.
     if not client.confirm_profile(token, profile_id):

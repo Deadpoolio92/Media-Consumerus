@@ -453,3 +453,45 @@ class SeasonsTests(SimpleTestCase):
         err = requests.exceptions.HTTPError(response=MagicMock(status_code=404))
         with patch.object(client.services, "api_request", side_effect=err):
             self.assertEqual(client.seasons("tok", "GONE"), [])
+
+
+class TokenRefreshTests(SimpleTestCase):
+    """Token — a self-refreshing access token (E9.5, mid-run 401 recovery)."""
+
+    def test_auth_headers_uses_token_value(self):
+        """_auth_headers reads the current value from a Token."""
+        tok = client.Token("abc", lambda: "def")
+        self.assertEqual(client._auth_headers(tok)["Authorization"], "Bearer abc")
+
+    def test_content_call_refreshes_on_401_and_retries(self):
+        """A 401 on a content call re-mints the token and retries once."""
+        err = requests.exceptions.HTTPError(response=MagicMock(status_code=401))
+        ok = {"data": [{"season_number": 1, "title": "S1"}]}
+        refreshed = []
+
+        def refresh():
+            refreshed.append(1)
+            return "new-token"
+
+        tok = client.Token("old", refresh)
+        with patch.object(
+            client.services, "api_request", side_effect=[err, ok],
+        ) as mock_req:
+            result = client.seasons(tok, "GT1")
+
+        self.assertEqual(result[0]["title"], "S1")
+        self.assertEqual(mock_req.call_count, 2)
+        self.assertEqual(refreshed, [1])
+        # The retry used the freshly-minted token.
+        self.assertEqual(
+            mock_req.call_args[1]["headers"]["Authorization"], "Bearer new-token",
+        )
+
+    def test_plain_string_token_does_not_refresh(self):
+        """A plain str token (no refresh) surfaces the 401 as a ValueError."""
+        err = requests.exceptions.HTTPError(response=MagicMock(status_code=401))
+        with (
+            patch.object(client.services, "api_request", side_effect=err),
+            self.assertRaises(ValueError),
+        ):
+            client.seasons("old", "GT1")
