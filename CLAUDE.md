@@ -61,7 +61,7 @@ shell/conf files are added later, make sure they end up LF.
 
 **Verified asset:** v1's reverse-engineered Crunchyroll sync was live-tested on 2026-06-16
 and **still works** — every endpoint returns 200 with the JSON shapes v1 parses. The CR
-logic is portable to the fork as-is. See [planning/DESIGN.md](planning/DESIGN.md) →
+logic is portable to the fork as-is. See [planning/design/DESIGN.md](planning/design/DESIGN.md) →
 "Crunchyroll" for the endpoint list and the one shape nuance (cms/series returns locales
 top-level, not nested).
 
@@ -86,10 +86,11 @@ The pivot is locked (fork Yamtrack, stay merge-able, private). Stock Yamtrack ru
 Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 → polish → E8.**
 
 **E9 was eng-reviewed and PHASED (`/plan-eng-review`, 8 decisions D1–D8 in
-[planning/E9-crunchyroll-plan.md](planning/E9-crunchyroll-plan.md)): E9a (C1 dub/sub) + E9b
+[planning/archive/v1/E9-crunchyroll-plan.md](planning/archive/v1/E9-crunchyroll-plan.md)):
+E9a (C1 dub/sub) + E9b
 (C2/C3 status+progress). Both are now done** — E9a shipped+merged (PR #5), E9b built 2026-06-21.
 
-**▶ NEXT = polish (E7 → E5), then E8** (build order E3→E1→E2→E10→E9→polish (E6/E7/E5)→E8).
+**▶ NEXT = polish (E7 → then E8)** (build order E3→E1→E2→E10→E9→polish (E6/E7)→E8; E5 dropped).
 E3/E1/E2/E10/E9 are all done+merged; **E6 is now BUILT** (2026-06-22, see the E6 bullet below).
 **E9b is fully LIVE — the profile-bind live-verify gate PASSED (2026-06-21):**
 `sync_crunchyroll_status` ran in-container against the `LK` profile (confirmed, no fail-closed),
@@ -102,10 +103,10 @@ fresh chat; this resume note + the plan docs are the entry point.
   per-user `{type}_enabled` flags + a Preferences UI honored across nav/search/calendar/stats.
   No code needed: untick manga/comic/book/boardgame in Preferences. (See decision-log.)
 - **E1 (dub/sub) — ✅ COMPLETE (all T1–T7 done 2026-06-20).** Full spec:
-  **[planning/E1-dub-sub-plan.md](planning/E1-dub-sub-plan.md)** (per-task DONE notes recorded
-  there). Scope is *availability* tracking: `AnimeAvailability` model (OneToOne→`Item`, JSON
-  locale-code lists), manual entry + **MyDubList** auto-fill (daily Celery task + async
-  on-add), last-write-wins, shared `app/languages.py` map.
+  **[planning/archive/v1/E1-dub-sub-plan.md](planning/archive/v1/E1-dub-sub-plan.md)** (per-task
+  DONE notes recorded there). Scope is *availability* tracking: `AnimeAvailability` model
+  (OneToOne→`Item`, JSON locale-code lists), manual entry + **MyDubList** auto-fill (daily
+  Celery task + async on-add), last-write-wins, shared `app/languages.py` map.
   - **Done:** **T1** `AnimeAvailability` model + migration `0062` + admin · **T2**
     `app/languages.py` (faithful 26-entry port of v1 `LANGUAGES`, code↔display helpers) ·
     **T3** manual entry (`AnimeForm` save-override upserts on change only; `views.py` badge
@@ -137,7 +138,7 @@ fresh chat; this resume note + the plan docs are the entry point.
     test). Daily beat runs `crontab(hour=4)`; tune `MYDUBLIST_CONFIDENCE` if coverage feels
     thin.
 - **E2 (list filters) — ✅ COMPLETE (all T1–T6 done 2026-06-20).**
-  Full spec + per-task DONE notes: **[planning/E2-list-filters-plan.md](planning/E2-list-filters-plan.md)**.
+  Full spec + per-task DONE notes: **[planning/archive/v1/E2-list-filters-plan.md](planning/archive/v1/E2-list-filters-plan.md)**.
   Adds rating / language / genre / year filters to the per-type list view.
   - **Key finding (baked into the plan):** genre + year are NOT in the DB (only in live
     provider metadata). Maintainer chose to **denormalize** them: NEW `ItemMetadata`
@@ -165,10 +166,10 @@ fresh chat; this resume note + the plan docs are the entry point.
     `uv run` from `src/` with `DJANGO_SETTINGS_MODULE=config.test_settings` (SQLite). Docker
     Desktop was not running this session.
 - **E10 (v1 data import) — ✅ COMPLETE; import is LIVE (T1–T8, 2026-06-21).** Full
-  spec + per-task notes: **[planning/E10-import-plan.md](planning/E10-import-plan.md)**;
-  runbook: **[planning/e10-import/README.md](planning/e10-import/README.md)**. Standalone
-  script tree under [planning/e10-import/](planning/e10-import/) (**zero `src/` edits**); the
-  load reuses Yamtrack's unmodified CSV importer.
+  spec + per-task notes: **[planning/archive/v1/E10-import-plan.md](planning/archive/v1/E10-import-plan.md)**;
+  runbook: **[planning/archive/v1/e10-import/README.md](planning/archive/v1/e10-import/README.md)**.
+  Standalone script tree under [planning/archive/v1/e10-import/](planning/archive/v1/e10-import/)
+  (**zero `src/` edits**); the load reuses Yamtrack's unmodified CSV importer.
   - **Maintainer decisions:** sheet via public-link `/browse` fetch · pre-resolve + review
     report · full-fidelity (episode-level) expansion · **personal library only** (drop the
     ~1,195 blank-status CR-catalog anime; keep status-bearing + the 39 progressed-but-blank
@@ -179,7 +180,7 @@ fresh chat; this resume note + the plan docs are the entry point.
     (T7, seeds E1 `AnimeAvailability`). **446 records → 2,147 rows** (435 high/5 med/5 low/1
     override, 0 unmatched; 16 multi-season anime flagged). Validated through the **real
     `YamtrackImporter`** on throwaway SQLite (full season/episode FK linking). **35 offline
-    tests pass** (`.venv/Scripts/python -m pytest` from `planning/e10-import/`; local
+    tests pass** (`.venv/Scripts/python -m pytest` from `planning/archive/v1/e10-import/`; local
     `pytest.ini` disables pytest-django).
   - **Executed live (2026-06-21):** ran the real `YamtrackImporter` in-container for user
     `Deadpoolio` (mode *new*; DB backed up to `db/_pre_e10_backup_*`). **Imported movie 95 /
@@ -218,7 +219,7 @@ fresh chat; this resume note + the plan docs are the entry point.
   branch `feat/e9b-crunchyroll-status-progress`).** Self-contained `integrations/crunchyroll/`
   module (`client`/`resolve`/`sync`) + an `integrations/tasks.py` beat + two
   `app/management/commands/`. All CR-API-shape risk is isolated in `client.py`; network is mocked
-  in tests. Plan + per-task notes: [planning/E9-crunchyroll-plan.md](planning/E9-crunchyroll-plan.md).
+  in tests. Plan + per-task notes: [planning/archive/v1/E9-crunchyroll-plan.md](planning/archive/v1/E9-crunchyroll-plan.md).
   - **E9a / C1 (dub/sub backfill):** one-off `manage.py backfill_crunchyroll_availability` fills
     `AnimeAvailability` audio+subtitle from the CR catalog (seed-code → exact-title → cms/series
     fallback; no-blank, last-write-wins). Profile-independent, read-only on CR. 310 rows seeded
@@ -243,10 +244,10 @@ fresh chat; this resume note + the plan docs are the entry point.
     (Completed+manual respected) / 2 unmatched / 9 via-season / 6 multi-season-skipped of 109,
     **0 errors**. The daily 05:00 beat is now live. (6 multi-season-skipped + 2 unmatched are the
     handle-by-hand titles; revisit if needed.)
-  - **Next per build order: polish (E6/E7/E5), then E8.**
+  - **Next per build order: polish (E6/E7), then E8.**
 
 - **E6 (streaming-provider links) — ✅ BUILT (2026-06-22; T1–T5 + E6b manual links).** Plan +
-  per-task notes: **[planning/E6-streaming-links-plan.md](planning/E6-streaming-links-plan.md)**.
+  per-task notes: **[planning/archive/v1/E6-streaming-links-plan.md](planning/archive/v1/E6-streaming-links-plan.md)**.
   Makes the detail-page STREAMING area actually *link* somewhere, and lets the maintainer add
   their own links. Most logic in a NEW `app/templatetags/streaming_tags.py`.
   - **tv/movie/season:** wrap the existing TMDB watch-provider logos in the **JustWatch region
@@ -271,7 +272,7 @@ fresh chat; this resume note + the plan docs are the entry point.
     live-verified** in-container (host `uv`/SQLite only; TMDB `link` field assumed present).
     **Live needs a `--build`** (new migration runs on container start; Tailwind classes used are
     all already compiled — verified).
-  - **Next per build order: E7 (game extras), then E5 (calendar).**
+  - **Next per build order: E7 (game extras), then E8.**
 
 **Backlog + sequence:** [planning/BACKLOG.md](planning/BACKLOG.md). v1 (Google Sheet + Apps
 Script) lives at `../Media Tracker v1` — source for the E10 personal-data import (transform
@@ -325,8 +326,8 @@ The "what to build on top of Yamtrack" list lives in **[planning/BACKLOG.md](pla
 derived from the match/beat/cut evaluation and ordered by value vs. merge-risk. Highlights:
 dub/sub tracking, streaming-provider links (per-title via TMDB watch-providers + CR link
 for anime — per-episode multi-provider is **not** available from public APIs), game
-install-links/licenses/coupons, cross-category search, calendar filtering + speed, and
-list filters (rating / language / genre / year).
+install-links/licenses/coupons, cross-category search, and list filters (rating / language /
+genre / year).
 
 ## Hosting
 
