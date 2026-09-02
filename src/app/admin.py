@@ -6,6 +6,7 @@ from django.contrib.admin.sites import AlreadyRegistered
 
 from app.models import (
     AnimeAvailability,
+    CrunchyrollCredential,
     Episode,
     Item,
     ItemMetadata,
@@ -89,6 +90,19 @@ class StreamingLinkAdmin(admin.ModelAdmin):
     list_select_related = ["item"]
 
 
+@admin.register(CrunchyrollCredential)
+class CrunchyrollCredentialAdmin(admin.ModelAdmin):
+    """Admin for the CR etp_rt store (E9.5) — read-mostly.
+
+    Explicit so it isn't swept into ``MediaAdmin`` (which expects item/user fields
+    and read-only status/score logic). The value is shown decrypted for recovery
+    convenience.
+    """
+
+    list_display = ["updated_at"]
+    readonly_fields = ["etp_rt", "etp_rt_vid", "updated_at"]
+
+
 class MediaAdmin(admin.ModelAdmin):
     """Custom admin for regular media model with search and filter options."""
 
@@ -110,6 +124,7 @@ SpecialModels = [
     "AnimeAvailability",
     "ItemMetadata",
     "StreamingLink",
+    "CrunchyrollCredential",
 ]
 for model in app_models:
     if (

@@ -72,6 +72,64 @@ class RunCrunchyrollSyncTests(TestCase):
         self.assertEqual(result, {"c2": _C2, "c3": _C3})
 
 
+class MintWithRenewalTests(TestCase):
+    """mint_with_renewal — auto-rotate etp_rt on an auth error (E9.5)."""
+
+    @override_settings(CRUNCHYROLL_ACCOUNT_USERNAME="", CRUNCHYROLL_ACCOUNT_PASSWORD="")
+    def test_no_account_credential_reraises_auth_error(self):
+        """Without a password configured, an invalid_grant still fails (manual path)."""
+        with (
+            patch.object(
+                tasks.client,
+                "mint_token",
+                side_effect=ValueError("… invalid_grant …"),
+            ) as mock_mint,
+            self.assertRaises(ValueError),
+        ):
+            tasks.mint_with_renewal("etp", profile_id="prof")
+        mock_mint.assert_called_once()
+
+    @override_settings(
+        CRUNCHYROLL_ACCOUNT_USERNAME="u",
+        CRUNCHYROLL_ACCOUNT_PASSWORD="p",  # noqa: S106  (test-only literal)
+    )
+    def test_renews_on_invalid_grant_and_persists(self):
+        """An expired cookie triggers a login, stores the fresh cookie, re-mints."""
+        with (
+            patch.object(
+                tasks.client,
+                "mint_token",
+                side_effect=[ValueError("… invalid_grant …"), "tok2"],
+            ) as mock_mint,
+            patch.object(
+                tasks.client,
+                "account_login",
+                return_value={"access_token": "t", "etp_rt": "new-cookie",
+                              "etp_rt_vid": "vid"},
+            ) as mock_login,
+        ):
+            token = tasks.mint_with_renewal("old", profile_id="prof")
+
+        self.assertEqual(token, "tok2")
+        self.assertEqual(mock_mint.call_count, 2)
+        mock_login.assert_called_once_with("u", "p")
+        self.assertEqual(tasks.store.resolve_etp_rt(), "new-cookie")
+
+    @override_settings(
+        CRUNCHYROLL_ACCOUNT_USERNAME="u",
+        CRUNCHYROLL_ACCOUNT_PASSWORD="p",  # noqa: S106  (test-only literal)
+    )
+    def test_transient_error_is_not_renewed(self):
+        """A network/5xx blip re-raises without attempting a login."""
+        with (
+            patch.object(tasks.client, "mint_token", side_effect=OSError("conn reset")),
+            patch.object(tasks.client, "account_login") as mock_login,
+            self.assertRaises(OSError),
+        ):
+            tasks.mint_with_renewal("etp")
+        mock_login.assert_not_called()
+
+
 @override_settings(CRUNCHYROLL_AUTH_FAIL_THRESHOLD=3)
 class FailureSignalTests(TestCase):
     """Consecutive auth failures escalate to a persistent error toast."""

@@ -17,6 +17,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from integrations import tasks
+from integrations.crunchyroll import store
 
 
 class Command(BaseCommand):
@@ -26,7 +27,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):  # noqa: ARG002
         """Resolve the user + token, run C2/C3, and print a summary."""
-        etp_rt = getattr(settings, "CRUNCHYROLL_ETP_RT", "")
+        etp_rt = store.resolve_etp_rt()
         profile_id = getattr(settings, "CRUNCHYROLL_PROFILE_ID", "")
         if not etp_rt:
             msg = "CRUNCHYROLL_ETP_RT is not set (see the E9 runbook)."

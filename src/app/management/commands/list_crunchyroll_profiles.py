@@ -14,10 +14,10 @@ Usage::
     python manage.py list_crunchyroll_profiles
 """
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from integrations.crunchyroll import client
+from integrations import tasks
+from integrations.crunchyroll import client, store
 
 
 class Command(BaseCommand):
@@ -27,13 +27,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):  # noqa: ARG002
         """Mint a token and print the profile list."""
-        etp_rt = getattr(settings, "CRUNCHYROLL_ETP_RT", "")
+        etp_rt = store.resolve_etp_rt()
         if not etp_rt:
             msg = "CRUNCHYROLL_ETP_RT is not set (see the E9 runbook)."
             raise CommandError(msg)
 
         try:
-            token = client.mint_token(etp_rt)
+            token = tasks.mint_with_renewal(etp_rt)
             profiles = client.list_profiles(token)
         except (ValueError, OSError) as exc:
             msg = f"Crunchyroll request failed: {exc}"

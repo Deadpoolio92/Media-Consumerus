@@ -9,7 +9,7 @@ import events
 from app.mixins import disable_fetch_releases
 from app.models import MediaTypes, UserMessage, UserMessageLevel
 from app.templatetags import app_tags
-from integrations.crunchyroll import client, sync
+from integrations.crunchyroll import client, store, sync
 from integrations.imports import (
     anilist,
     goodreads,
@@ -185,15 +185,44 @@ def resolve_cr_user():
     return users[0] if len(users) == 1 else None
 
 
+def mint_with_renewal(etp_rt, profile_id=None):
+    """Mint a token, auto-rotating ``etp_rt`` via account login on auth failure (E9.5).
+
+    First tries :func:`client.mint_token`. If it raises a credential error
+    (:func:`client.is_auth_error` — an expired/revoked ``etp_rt`` surfaces as
+    ``invalid_grant``) **and** ``CRUNCHYROLL_ACCOUNT_USERNAME``/``PASSWORD`` are
+    configured, this logs in via :func:`client.account_login`, persists the fresh
+    cookie to :func:`store.set_etp_rt`, and re-mints with the rotated cookie. Any other
+    error re-raises untouched. Fully self-healing: a dead cookie no longer needs a
+    manual browser re-capture (the failure-streak toast only fires if login *also*
+    fails).
+    """
+    try:
+        return client.mint_token(etp_rt, profile_id=profile_id)
+    except (ValueError, OSError) as exc:
+        account_user = getattr(settings, "CRUNCHYROLL_ACCOUNT_USERNAME", "")
+        account_pass = getattr(settings, "CRUNCHYROLL_ACCOUNT_PASSWORD", "")
+        if not (account_user and account_pass and client.is_auth_error(exc)):
+            raise
+        logger.info(
+            "Crunchyroll etp_rt expired; auto-renewing via account login (%s)",
+            account_user,
+        )
+        fresh = client.account_login(account_user, account_pass)
+        store.set_etp_rt(fresh["etp_rt"], fresh.get("etp_rt_vid"))
+        return client.mint_token(fresh["etp_rt"], profile_id=profile_id)
+
+
 def run_crunchyroll_sync(user, etp_rt, profile_id):
     """Mint a profile-bound token, guard the profile, then run C2 + C3 for ``user``.
 
     Shared by the daily beat and the manual management command. Raises ``ValueError`` /
     ``OSError`` on any auth/profile failure (token mint, account lookup, or a profile
     that can't be confirmed) so the caller can record/report it; returns
-    ``{"c2": …, "c3": …}`` counts on success.
+    ``{"c2": …, "c3": …}`` counts on success. ``etp_rt`` is auto-renewed on expiry via
+    :func:`mint_with_renewal` when the account credential is configured (E9.5).
     """
-    token = client.mint_token(etp_rt, profile_id=profile_id)
+    token = mint_with_renewal(etp_rt, profile_id)
     account = client.account_id(token)
     # Mandatory shared-account guard: never write another profile's data.
     if not client.confirm_profile(token, profile_id):
@@ -220,12 +249,18 @@ def _record_cr_failure(user, message):
     cache.set(CR_FAIL_STREAK_KEY, streak, None)
     logger.warning("Crunchyroll sync failure (streak %s): %s", streak, message)
     if streak >= settings.CRUNCHYROLL_AUTH_FAIL_THRESHOLD:
+        # Failing this far means either auto-renewal isn't configured, or a login
+        # also failed — so the guidance covers both recovery paths.
+        hint = (
+            "Set CRUNCHYROLL_ACCOUNT_USERNAME/PASSWORD to auto-rotate "
+            "(or re-capture CRUNCHYROLL_ETP_RT)."
+        )
         UserMessage.objects.create(
             user=user,
             level=UserMessageLevel.ERROR.value,
             message=(
                 f"Crunchyroll sync has failed {streak} runs in a row. "
-                f"Re-capture CRUNCHYROLL_ETP_RT (it expires). Details: {message}"
+                f"{hint} Details: {message}"
             ),
         )
 
@@ -240,11 +275,18 @@ def sync_crunchyroll():
     """Daily: pull CR watchlist->status (C2) and history->progress (C3) for the user.
 
     No-ops cleanly when CR isn't configured (``ETP_RT``/``PROFILE_ID`` unset) or the
-    target user is ambiguous. Auth/profile failures are recorded (and surfaced as a
-    persistent error after a few consecutive runs) rather than raising.
+    target user is ambiguous. Reads ``etp_rt`` from the DB store (env-seeded once);
+    an expired cookie auto-rotates via account login when configured (E9.5). Auth/
+    profile failures are recorded (and surfaced as a persistent error after a few
+    consecutive runs) rather than raising.
     """
-    if not settings.CRUNCHYROLL_ETP_RT or not settings.CRUNCHYROLL_PROFILE_ID:
-        logger.info("Crunchyroll sync skipped: ETP_RT/PROFILE_ID not configured.")
+    if not settings.CRUNCHYROLL_PROFILE_ID:
+        logger.info("Crunchyroll sync skipped: PROFILE_ID not configured.")
+        return None
+
+    etp_rt = store.resolve_etp_rt()
+    if not etp_rt:
+        logger.info("Crunchyroll sync skipped: no ETP_RT (env or stored).")
         return None
 
     user = resolve_cr_user()
@@ -255,11 +297,7 @@ def sync_crunchyroll():
         return None
 
     try:
-        result = run_crunchyroll_sync(
-            user,
-            settings.CRUNCHYROLL_ETP_RT,
-            settings.CRUNCHYROLL_PROFILE_ID,
-        )
+        result = run_crunchyroll_sync(user, etp_rt, settings.CRUNCHYROLL_PROFILE_ID)
     except (ValueError, OSError) as exc:
         _record_cr_failure(user, str(exc))
         return None

@@ -2150,6 +2150,39 @@ class StreamingLink(models.Model):
         return f"{self.name} ({self.item})"
 
 
+class CrunchyrollCredential(models.Model):
+    """Singleton store for the Crunchyroll ``etp_rt`` session cookie (E9.5).
+
+    ``etp_rt`` is CR's long-lived refresh cookie: the daily C2/C3 beat mints a
+    short-lived access token from it, and CR retires/expires it every few months
+    (``invalid_grant`` on the mint). It used to live only in env
+    (``CRUNCHYROLL_ETP_RT``), which is immutable at runtime — so a *rotated*
+    cookie (from :func:`client.account_login`) had nowhere durable to land. This
+    row is the writable store: the env value seeds it once
+    (``crunchyroll.store.resolve_etp_rt``) and auto-renewal rewrites it in place.
+
+    The cookie is stored **encrypted** via ``integrations.imports.helpers.encrypt``
+    (Fernet keyed off ``SECRET_KEY``), the same pattern Trakt/SIMKL use for refresh
+    tokens. Access only through ``integrations/crunchyroll/store.py`` (which enforces
+    the single row via ``pk == CR_SINGLETON_PK``).
+    """
+
+    etp_rt = models.TextField(blank=True, default="")
+    # Optional companion cookie some CR responses include alongside ``etp_rt``.
+    etp_rt_vid = models.TextField(blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        """Meta options for the model."""
+
+        verbose_name = "Crunchyroll credential"
+        verbose_name_plural = "Crunchyroll credentials"
+
+    def __str__(self):
+        """Return a short label identifying this singleton row."""
+        return f"{self.updated_at:%Y-%m-%d %H:%M} etp_rt stored"
+
+
 class Movie(Media):
     """Model for movies."""
 

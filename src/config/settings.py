@@ -593,16 +593,24 @@ STREAMING_LINKS_ENABLED = config("STREAMING_LINKS_ENABLED", default=True, cast=b
 # (watchlist->status + history->progress). All admin-level secrets, kept in the
 # env/override like SECRET/TMDB_API (never committed).
 #   ETP_RT      — the long-lived `etp_rt` cookie copied once from a logged-in browser.
+#                 This is now a *seed* value: the first sync stores it into the
+#                 `CrunchyrollCredential` DB row and auto-renewal (E9.5) rewrites it.
 #   BASIC_AUTH  — the public CR web-client `Authorization: Basic ...` value (unofficial;
 #                 see the E9 runbook for how to capture it).
 #   PROFILE_ID  — the maintainer's CR profile on the shared account (E9b / C2-C3 only;
 #                 the beat won't write unless the minted token confirms this profile).
 #   USERNAME    — which fork user C2/C3 writes to (E9b). Blank = the sole user when
 #                 there's exactly one (personal-fork norm); required if there are more.
+#   ACCOUNT_*   — (E9.5, OPTIONAL) the CR account username/password. When set, an
+#                 expired `etp_rt` auto-rotates via `/auth/v1/login` instead of
+#                 needing a manual browser re-capture. Omit to keep the manual
+#                 recapture flow (the failure-streak toast still fires).
 CRUNCHYROLL_ETP_RT = config("CRUNCHYROLL_ETP_RT", default="")
 CRUNCHYROLL_BASIC_AUTH = config("CRUNCHYROLL_BASIC_AUTH", default="")
 CRUNCHYROLL_PROFILE_ID = config("CRUNCHYROLL_PROFILE_ID", default="")
 CRUNCHYROLL_USERNAME = config("CRUNCHYROLL_USERNAME", default="")
+CRUNCHYROLL_ACCOUNT_USERNAME = config("CRUNCHYROLL_ACCOUNT_USERNAME", default="")
+CRUNCHYROLL_ACCOUNT_PASSWORD = config("CRUNCHYROLL_ACCOUNT_PASSWORD", default="")
 # Consecutive failed beats before a persistent error toast is raised (no silent fail).
 CRUNCHYROLL_AUTH_FAIL_THRESHOLD = config(
     "CRUNCHYROLL_AUTH_FAIL_THRESHOLD",

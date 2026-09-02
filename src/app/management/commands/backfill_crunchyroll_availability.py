@@ -17,10 +17,10 @@ Usage::
     python manage.py backfill_crunchyroll_availability
 """
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from integrations.crunchyroll import client, sync
+from integrations import tasks
+from integrations.crunchyroll import store, sync
 
 
 class Command(BaseCommand):
@@ -30,7 +30,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):  # noqa: ARG002
         """Mint a token, run the C1 backfill, and print a summary."""
-        etp_rt = getattr(settings, "CRUNCHYROLL_ETP_RT", "")
+        etp_rt = store.resolve_etp_rt()
         if not etp_rt:
             msg = (
                 "CRUNCHYROLL_ETP_RT is not set. Copy the 'etp_rt' cookie from a "
@@ -40,7 +40,7 @@ class Command(BaseCommand):
 
         self.stdout.write("Minting Crunchyroll token…")
         try:
-            token = client.mint_token(etp_rt)
+            token = tasks.mint_with_renewal(etp_rt)
         except (ValueError, OSError) as exc:
             # OSError covers requests' network/HTTP errors (RequestException subclass).
             msg = f"Crunchyroll auth failed: {exc}"

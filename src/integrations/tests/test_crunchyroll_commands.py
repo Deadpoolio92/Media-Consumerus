@@ -18,7 +18,7 @@ LIST_CMD = "app.management.commands.list_crunchyroll_profiles"
 User = get_user_model()
 
 
-class BackfillCommandTests(SimpleTestCase):
+class BackfillCommandTests(TestCase):
     """`backfill_crunchyroll_availability`."""
 
     @override_settings(CRUNCHYROLL_ETP_RT="")
@@ -42,7 +42,7 @@ class BackfillCommandTests(SimpleTestCase):
         }
         out = StringIO()
         with (
-            patch(f"{BACKFILL}.client.mint_token", return_value="tok"),
+            patch("integrations.tasks.mint_with_renewal", return_value="tok"),
             patch(f"{BACKFILL}.sync.backfill_c1", return_value=counts) as mock_backfill,
         ):
             call_command("backfill_crunchyroll_availability", stdout=out)
@@ -54,13 +54,16 @@ class BackfillCommandTests(SimpleTestCase):
     def test_auth_failure_raises_commanderror(self):
         """A token mint failure surfaces as a CommandError, not a traceback."""
         with (
-            patch(f"{BACKFILL}.client.mint_token", side_effect=ValueError("bad creds")),
+            patch(
+                "integrations.tasks.mint_with_renewal",
+                side_effect=ValueError("bad creds"),
+            ),
             self.assertRaises(CommandError),
         ):
             call_command("backfill_crunchyroll_availability")
 
 
-class ListProfilesCommandTests(SimpleTestCase):
+class ListProfilesCommandTests(TestCase):
     """`list_crunchyroll_profiles`."""
 
     @override_settings(CRUNCHYROLL_ETP_RT="")
@@ -75,7 +78,7 @@ class ListProfilesCommandTests(SimpleTestCase):
         out = StringIO()
         profile = {"profile_id": "p1", "profile_name": "Me", "is_primary": True}
         with (
-            patch(f"{LIST_CMD}.client.mint_token", return_value="tok"),
+            patch("integrations.tasks.mint_with_renewal", return_value="tok"),
             patch(f"{LIST_CMD}.client.list_profiles", return_value=[profile]),
         ):
             call_command("list_crunchyroll_profiles", stdout=out)

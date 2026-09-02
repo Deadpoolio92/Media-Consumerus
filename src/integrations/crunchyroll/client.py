@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 PROVIDER = "crunchyroll"
 BASE = "https://www.crunchyroll.com"
 TOKEN_URL = f"{BASE}/auth/v1/token"
+LOGIN_URL = f"{BASE}/auth/v1/login"
 BROWSE_URL = f"{BASE}/content/v2/discover/browse"
 SERIES_URL = f"{BASE}/content/v2/cms/series/{{code}}"
 SEASONS_URL = f"{BASE}/content/v2/cms/series/{{code}}/seasons"
@@ -175,6 +176,66 @@ def mint_token(etp_rt, profile_id=None):
         msg = "Crunchyroll token response had no access_token"
         raise ValueError(msg)
     return token
+
+
+def is_auth_error(exc):
+    """Return ``True`` iff a CR request error means the credentials are bad/expired.
+
+    This is the E9.5 renewal trigger: a dead ``etp_rt`` surfaces on the mint as
+    ``invalid_grant`` (and ``invalid_client`` / ``unauthorized`` for a revoked/bad
+    credential), which are NOT transient blips — an auto-rotate via
+    :func:`account_login` is the fix. Transient network/5xx/429 errors don't match
+    these tokens, so we don't re-login on those.
+    """
+    body = str(exc).lower()
+    return any(tok in body for tok in (
+        "invalid_grant", "invalid_client", "unauthorized",
+    ))
+
+
+def account_login(account_username, account_password):
+    """Log in with the CR account username/password; return fresh auth + cookies.
+
+    ``POST /auth/v1/login`` (``grant_type=password``, ``auth_type=etp``, same public
+    Basic-auth web-client credential as the mint, stable ``device_id``). A successful
+    login **rotates** ``etp_rt``: CR issues a fresh ``etp_rt`` (+ ``etp_rt_vid``) via
+    ``Set-Cookie`` and retires the prior cookie server-side. Returns
+    ``{"access_token": str, "etp_rt": str, "etp_rt_vid": str|None}``.
+
+    This is the *only* non-browser way to renew a dead ``etp_rt`` (the
+    ``etp_rt_cookie`` mint never emits a new cookie). Uses ``services.session``
+    directly (not :func:`_cr_request`) because it needs the response headers/cookies,
+    which the shared ``api_request`` discards. The exact login+response shape is
+    unofficial and should be live-verified once (see the E9 runbook).
+    """
+    headers = {
+        "Authorization": _basic_auth(),
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": USER_AGENT,
+    }
+    data = {
+        "username": account_username,
+        "password": account_password,
+        "grant_type": "password",
+        "auth_type": "etp",
+        "device_id": _device_id(),
+        "device_type": DEVICE_TYPE,
+    }
+    response = services.session.post(
+        LOGIN_URL, headers=headers, data=data, timeout=settings.REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    token = payload.get("access_token") or payload.get("token")
+    etp_rt = response.cookies.get("etp_rt")
+    if not token or not etp_rt:
+        msg = "Crunchyroll login response had no access_token/etp_rt"
+        raise ValueError(msg)
+    result = {"access_token": token, "etp_rt": etp_rt}
+    etp_rt_vid = response.cookies.get("etp_rt_vid")
+    if etp_rt_vid:
+        result["etp_rt_vid"] = etp_rt_vid
+    return result
 
 
 def _auth_headers(token):

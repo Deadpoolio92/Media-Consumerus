@@ -207,6 +207,70 @@ class ListProfilesTests(SimpleTestCase):
 
 
 @override_settings(CRUNCHYROLL_BASIC_AUTH="Basic test==")
+class AccountLoginTests(SimpleTestCase):
+    """account_login — the E9.5 etp_rt rotation path."""
+
+    def _login_response(self, cookies):
+        """Build a fake session.post response carrying the given cookies."""
+        resp = MagicMock()
+        resp.json.return_value = {"access_token": "tok-login", "token_type": "Bearer"}
+        resp.cookies.get.side_effect = cookies.get
+        return resp
+
+    def test_returns_fresh_etp_rt_and_access_token(self):
+        """Reads the rotated etp_rt from the login Set-Cookie and the body token."""
+        resp = self._login_response({"etp_rt": "new-cookie", "etp_rt_vid": "vid"})
+        with patch.object(
+            client.services.session, "post", return_value=resp,
+        ) as mock_post:
+            result = client.account_login("user@x.com", "secret")
+
+        self.assertEqual(result["etp_rt"], "new-cookie")
+        self.assertEqual(result["etp_rt_vid"], "vid")
+        self.assertEqual(result["access_token"], "tok-login")
+        called = mock_post.call_args
+        self.assertEqual(called[0][0], client.LOGIN_URL)
+        self.assertEqual(called[1]["data"]["grant_type"], "password")
+        self.assertEqual(called[1]["data"]["auth_type"], "etp")
+        self.assertEqual(called[1]["data"]["username"], "user@x.com")
+        self.assertEqual(called[1]["data"]["password"], "secret")
+        self.assertIn("device_id", called[1]["data"])
+        self.assertEqual(called[1]["headers"]["Authorization"], "Basic test==")
+
+    def test_missing_etp_rt_cookie_raises(self):
+        """A login response without an etp_rt cookie is a hard error."""
+        resp = self._login_response({})
+        with (
+            patch.object(client.services.session, "post", return_value=resp),
+            self.assertRaises(ValueError),
+        ):
+            client.account_login("user@x.com", "secret")
+
+    def test_missing_access_token_raises(self):
+        """A login response with an etp_rt but no token is a hard error."""
+        resp = self._login_response({"etp_rt": "new-cookie"})
+        resp.json.return_value = {}
+        with (
+            patch.object(client.services.session, "post", return_value=resp),
+            self.assertRaises(ValueError),
+        ):
+            client.account_login("user@x.com", "secret")
+
+
+class IsAuthErrorTests(SimpleTestCase):
+    """is_auth_error — the E9.5 renewal trigger detection."""
+
+    def test_invalid_grant_is_an_auth_error(self):
+        """An expired etp_rt (invalid_grant) is renewable."""
+        self.assertTrue(client.is_auth_error(ValueError("… (400): invalid_grant …")))
+
+    def test_transient_errors_are_not_auth_errors(self):
+        """Network/5xx/429 blips are not credential problems (don't re-login)."""
+        self.assertFalse(client.is_auth_error(OSError("connection refused")))
+        self.assertFalse(client.is_auth_error(ValueError("… (429): rate limited")))
+
+
+@override_settings(CRUNCHYROLL_BASIC_AUTH="Basic test==")
 class MintTokenProfileTests(SimpleTestCase):
     """E9b: a profile-bound token sends the profile_id form field."""
 
