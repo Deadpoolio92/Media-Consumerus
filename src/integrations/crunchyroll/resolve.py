@@ -45,6 +45,7 @@ class JikanSearchError(RuntimeError):
     the 2026-08-24 outage became month-long misses). ``args[0]`` is the query.
     """
 
+
 # Public web base for series deep-links (E6). CR redirects the code-only
 # /series/{code} URL to the canonical slug, so no slug lookup is needed.
 WEB_BASE = "https://www.crunchyroll.com"

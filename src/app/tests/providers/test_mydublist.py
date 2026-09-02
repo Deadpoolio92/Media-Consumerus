@@ -150,30 +150,39 @@ class FetchDatasetTests(SimpleTestCase):
 
     def test_http_error_propagates_and_caches_nothing(self):
         """A network/HTTP error aborts the whole fetch with nothing cached."""
-        with patch(
-            "app.providers.mydublist.services.api_request",
-            side_effect=requests.exceptions.HTTPError("500"),
-        ), self.assertRaises(requests.exceptions.HTTPError):
+        with (
+            patch(
+                "app.providers.mydublist.services.api_request",
+                side_effect=requests.exceptions.HTTPError("500"),
+            ),
+            self.assertRaises(requests.exceptions.HTTPError),
+        ):
             mydublist.fetch_dataset(confidence="high", force_refresh=True)
 
         self.assertIsNone(cache.get("mydublist_dataset_high"))
 
     def test_bad_json_propagates_and_caches_nothing(self):
         """A JSON decode error propagates; no partial dataset is cached."""
-        with patch(
-            "app.providers.mydublist.services.api_request",
-            side_effect=JSONDecodeError("Expecting value", "", 0),
-        ), self.assertRaises(ValueError):
+        with (
+            patch(
+                "app.providers.mydublist.services.api_request",
+                side_effect=JSONDecodeError("Expecting value", "", 0),
+            ),
+            self.assertRaises(ValueError),
+        ):
             mydublist.fetch_dataset(confidence="high", force_refresh=True)
 
         self.assertIsNone(cache.get("mydublist_dataset_high"))
 
     def test_schema_drift_raises_and_caches_nothing(self):
         """A file missing the 'dubbed' key is treated as schema drift."""
-        with patch(
-            "app.providers.mydublist.services.api_request",
-            return_value={"language": "English"},  # no 'dubbed'
-        ), self.assertRaises(ValueError) as cm:
+        with (
+            patch(
+                "app.providers.mydublist.services.api_request",
+                return_value={"language": "English"},  # no 'dubbed'
+            ),
+            self.assertRaises(ValueError) as cm,
+        ):
             mydublist.fetch_dataset(confidence="high", force_refresh=True)
 
         self.assertIn("schema drift", str(cm.exception))

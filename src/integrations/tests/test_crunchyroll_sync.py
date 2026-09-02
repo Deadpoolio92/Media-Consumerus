@@ -205,8 +205,10 @@ class AdvanceProgressTests(TestCase):
         """A Completed row is never touched by a lower CR progress."""
         with disable_fetch_releases(), _patch_metadata(max_progress=12):
             Anime.objects.create(
-                item=self.item, user=self.user,
-                status=Status.COMPLETED.value, progress=12,
+                item=self.item,
+                user=self.user,
+                status=Status.COMPLETED.value,
+                progress=12,
             )
         self.assertEqual(self._advance(3), "skipped")
         self.assertEqual(self._anime_row().status, Status.COMPLETED.value)
@@ -216,7 +218,8 @@ class AdvanceProgressTests(TestCase):
         for status in (Status.PAUSED.value, Status.DROPPED.value):
             with disable_fetch_releases(), _patch_metadata(max_progress=12):
                 Anime.objects.update_or_create(
-                    item=self.item, user=self.user,
+                    item=self.item,
+                    user=self.user,
                     defaults={"status": status, "progress": 2},
                 )
             self.assertEqual(self._advance(9), "skipped")
@@ -226,8 +229,10 @@ class AdvanceProgressTests(TestCase):
         """A furthest below current progress is a no-op (no rewind)."""
         with disable_fetch_releases(), _patch_metadata(max_progress=12):
             Anime.objects.create(
-                item=self.item, user=self.user,
-                status=Status.IN_PROGRESS.value, progress=8,
+                item=self.item,
+                user=self.user,
+                status=Status.IN_PROGRESS.value,
+                progress=8,
             )
         self.assertEqual(self._advance(3), "unchanged")
         self.assertEqual(self._anime_row().progress, 8)
@@ -236,8 +241,10 @@ class AdvanceProgressTests(TestCase):
         """A Planning row with real CR progress becomes In progress."""
         with disable_fetch_releases(), _patch_metadata(max_progress=12):
             Anime.objects.create(
-                item=self.item, user=self.user,
-                status=Status.PLANNING.value, progress=0,
+                item=self.item,
+                user=self.user,
+                status=Status.PLANNING.value,
+                progress=0,
             )
         self.assertEqual(self._advance(4), "written")
         row = self._anime_row()
@@ -264,7 +271,7 @@ class SyncC2StatusTests(TestCase):
         """A resolvable watchlist title with no row -> a Planning row."""
         counts = self._run(
             watchlist=[{"series_id": "GT1", "title": "Show A"}],
-            cr_to_mal=lambda *_:"100",
+            cr_to_mal=lambda *_: "100",
         )
         self.assertEqual(counts["planning_created"], 1)
         row = Anime.objects.get(item__media_id="100", user=self.user)
@@ -274,11 +281,14 @@ class SyncC2StatusTests(TestCase):
         """An already-tracked title is skipped (C3 drives transitions, not C2)."""
         item = _anime("200", "Show B")
         Anime.objects.create(
-            item=item, user=self.user, status=Status.IN_PROGRESS.value, progress=3,
+            item=item,
+            user=self.user,
+            status=Status.IN_PROGRESS.value,
+            progress=3,
         )
         counts = self._run(
             watchlist=[{"series_id": "GT2", "title": "Show B"}],
-            cr_to_mal=lambda *_:"200",
+            cr_to_mal=lambda *_: "200",
         )
         self.assertEqual((counts["skipped"], counts["planning_created"]), (1, 0))
         self.assertEqual(
@@ -290,7 +300,7 @@ class SyncC2StatusTests(TestCase):
         """A watchlist series that can't resolve to MAL is counted, not written."""
         counts = self._run(
             watchlist=[{"series_id": "GTX", "title": "Mystery"}],
-            cr_to_mal=lambda *_:None,
+            cr_to_mal=lambda *_: None,
         )
         self.assertEqual((counts["unmatched"], counts["planning_created"]), (1, 0))
 
@@ -311,7 +321,9 @@ class SyncC3ProgressTests(TestCase):
             patch.object(sync.client, "seasons", return_value=seasons or []),
             patch.object(sync.resolve, "cr_code_to_mal", side_effect=cr_to_mal),
             patch.object(
-                sync.resolve, "resolve_title_to_mal", side_effect=title_to_mal,
+                sync.resolve,
+                "resolve_title_to_mal",
+                side_effect=title_to_mal,
             ),
             _patch_metadata(),
         ):
@@ -331,8 +343,12 @@ class SyncC3ProgressTests(TestCase):
     def test_multi_season_resolves_via_season_title(self):
         """A season>1 row resolves per-season via the seasons endpoint title."""
         history = [
-            {"series_id": "GT9", "season_number": 2,
-             "episode_number": 5, "title": "Fr"},
+            {
+                "series_id": "GT9",
+                "season_number": 2,
+                "episode_number": 5,
+                "title": "Fr",
+            },
         ]
         counts = self._run(
             history=history,

@@ -268,8 +268,7 @@ def media_list(request, username, media_type):
         {
             "var": "genre",
             "placeholder": "Any genre",
-            "choices": [("", "Any genre")]
-            + [(g, g) for g in filter_options["genres"]],
+            "choices": [("", "Any genre")] + [(g, g) for g in filter_options["genres"]],
         },
         {
             "var": "language",

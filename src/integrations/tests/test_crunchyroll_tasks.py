@@ -12,8 +12,16 @@ from integrations import tasks
 User = get_user_model()
 
 _C2 = {"watchlist": 1, "planning_created": 1, "skipped": 0, "unmatched": 0, "errors": 0}
-_C3 = {"series": 1, "written": 1, "unchanged": 0, "skipped": 0, "unmatched": 0,
-       "via_season": 0, "multi_season_skipped": 0, "errors": 0}
+_C3 = {
+    "series": 1,
+    "written": 1,
+    "unchanged": 0,
+    "skipped": 0,
+    "unmatched": 0,
+    "via_season": 0,
+    "multi_season_skipped": 0,
+    "errors": 0,
+}
 
 
 class ResolveCrUserTests(TestCase):
@@ -104,8 +112,11 @@ class MintWithRenewalTests(TestCase):
             patch.object(
                 tasks.client,
                 "account_login",
-                return_value={"access_token": "t", "etp_rt": "new-cookie",
-                              "etp_rt_vid": "vid"},
+                return_value={
+                    "access_token": "t",
+                    "etp_rt": "new-cookie",
+                    "etp_rt_vid": "vid",
+                },
             ) as mock_login,
         ):
             token = tasks.mint_with_renewal("old", profile_id="prof")

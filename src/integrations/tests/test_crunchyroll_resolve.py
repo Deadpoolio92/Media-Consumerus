@@ -196,9 +196,7 @@ class JikanOutageTests(SimpleTestCase):
     def test_genuine_miss_is_still_cached(self):
         """A successful empty search (real miss) is cached; only outages aren't."""
         key = "cr:resolve:title:neverseen"
-        with patch.object(
-            resolve, "_jikan_search", return_value=[]
-        ) as miss_search:
+        with patch.object(resolve, "_jikan_search", return_value=[]) as miss_search:
             self.assertIsNone(resolve.resolve_title_to_mal("NeverSeen"))
             self.assertIsNone(resolve.resolve_title_to_mal("NeverSeen"))
         miss_search.assert_called_once()  # miss cached -> no repeat Jikan call
@@ -210,20 +208,22 @@ def _resp(status, payload=None, retry_after=None):
     r = requests.Response()
     r.status_code = status
     r.headers["Retry-After"] = retry_after or ""
-    r.json = lambda: (payload if payload is not None else {})
+    r.json = lambda: payload if payload is not None else {}
     return r
 
 
 def _ok_resp(mal_id="123", title="Foo"):
     """Build a 200 search response containing one candidate."""
     payload = {
-        "data": [{
-            "mal_id": mal_id,
-            "title": title,
-            "title_english": None,
-            "title_japanese": None,
-            "titles": [],
-        }],
+        "data": [
+            {
+                "mal_id": mal_id,
+                "title": title,
+                "title_english": None,
+                "title_japanese": None,
+                "titles": [],
+            }
+        ],
     }
     return _resp(200, payload=payload)
 
@@ -247,10 +247,12 @@ class JikanRetryHelperTests(SimpleTestCase):
         big = _resp(429, retry_after="999")
         self.assertEqual(resolve._retry_delay(big, 1), resolve.JIKAN_MAX_WAIT)
         self.assertEqual(
-            resolve._retry_delay(None, 9), resolve.JIKAN_MAX_WAIT,  # backoff capped
+            resolve._retry_delay(None, 9),
+            resolve.JIKAN_MAX_WAIT,  # backoff capped
         )
         self.assertLess(
-            resolve._retry_delay(None, 1), resolve._retry_delay(None, 3),
+            resolve._retry_delay(None, 1),
+            resolve._retry_delay(None, 3),
         )  # grows with attempt
 
 
@@ -265,7 +267,8 @@ class JikanRetrySearchTests(SimpleTestCase):
         """A rate-limited first hit is retried (honouring Retry-After) and resolves."""
         with (
             patch.object(
-                resolve.requests, "get",
+                resolve.requests,
+                "get",
                 side_effect=[_resp(429, retry_after="2"), _ok_resp()],
             ) as mock_get,
             self._sleepless(),
@@ -278,7 +281,9 @@ class JikanRetrySearchTests(SimpleTestCase):
         """A 504 gateway blip is retried and the title still resolves."""
         with (
             patch.object(
-                resolve.requests, "get", side_effect=[_resp(504), _ok_resp()],
+                resolve.requests,
+                "get",
+                side_effect=[_resp(504), _ok_resp()],
             ) as mock_get,
             self._sleepless(),
         ):
@@ -290,7 +295,8 @@ class JikanRetrySearchTests(SimpleTestCase):
         """A transient connection failure is retried."""
         with (
             patch.object(
-                resolve.requests, "get",
+                resolve.requests,
+                "get",
                 side_effect=[requests.exceptions.ConnectionError, _ok_resp()],
             ) as mock_get,
             self._sleepless(),
@@ -304,7 +310,9 @@ class JikanRetrySearchTests(SimpleTestCase):
         for status in (429, 503, 504):
             with (
                 patch.object(
-                    resolve.requests, "get", return_value=_resp(status),
+                    resolve.requests,
+                    "get",
+                    return_value=_resp(status),
                 ) as mock_get,
                 patch.object(resolve.time, "sleep"),
                 self.assertRaises(resolve.JikanSearchError),
@@ -317,7 +325,9 @@ class JikanRetrySearchTests(SimpleTestCase):
         """A 400 is fatal on the first request, not hammered with retries."""
         with (
             patch.object(
-                resolve.requests, "get", return_value=_resp(400),
+                resolve.requests,
+                "get",
+                return_value=_resp(400),
             ) as mock_get,
             patch.object(resolve.time, "sleep"),
             self.assertRaises(resolve.JikanSearchError),
@@ -345,8 +355,14 @@ class GenericSeasonLabelTests(SimpleTestCase):
     def test_recognizes_generic_labels(self):
         """Pure 'Season N' / OVA / Special / Movie labels are generic."""
         for label in (
-            "Season 2", "Season 10", "OVAs", "OVA", "Specials", "Special",
-            "Movies", "Movie",
+            "Season 2",
+            "Season 10",
+            "OVAs",
+            "OVA",
+            "Specials",
+            "Special",
+            "Movies",
+            "Movie",
         ):
             self.assertTrue(
                 resolve._is_generic_season_label(resolve.normalize(label)),
@@ -356,7 +372,9 @@ class GenericSeasonLabelTests(SimpleTestCase):
     def test_ignores_real_titles(self):
         """A real title that merely contains 'Season N' is not generic."""
         for label in (
-            "Attack on Titan Season 2", "Season 2: Part 2", "Frieren",
+            "Attack on Titan Season 2",
+            "Season 2: Part 2",
+            "Frieren",
         ):
             self.assertFalse(
                 resolve._is_generic_season_label(resolve.normalize(label)),
@@ -383,9 +401,12 @@ class GenericSeasonSkipTests(SimpleTestCase):
         """A real title containing 'Season 2' still resolves via Jikan."""
         candidates = [{"mal_id": "1", "titles": ["Attack on Titan Season 2"]}]
         with patch.object(
-            resolve, "_jikan_search", return_value=candidates,
+            resolve,
+            "_jikan_search",
+            return_value=candidates,
         ) as mock_search:
             self.assertEqual(
-                resolve.resolve_title_to_mal("Attack on Titan Season 2"), "1",
+                resolve.resolve_title_to_mal("Attack on Titan Season 2"),
+                "1",
             )
         mock_search.assert_called_once()

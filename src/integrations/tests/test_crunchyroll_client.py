@@ -221,7 +221,9 @@ class AccountLoginTests(SimpleTestCase):
         """Reads the rotated etp_rt from the login Set-Cookie and the body token."""
         resp = self._login_response({"etp_rt": "new-cookie", "etp_rt_vid": "vid"})
         with patch.object(
-            client.services.session, "post", return_value=resp,
+            client.services.session,
+            "post",
+            return_value=resp,
         ) as mock_post:
             result = client.account_login("user@x.com", "secret")
 
@@ -475,7 +477,9 @@ class TokenRefreshTests(SimpleTestCase):
 
         tok = client.Token("old", refresh)
         with patch.object(
-            client.services, "api_request", side_effect=[err, ok],
+            client.services,
+            "api_request",
+            side_effect=[err, ok],
         ) as mock_req:
             result = client.seasons(tok, "GT1")
 
@@ -484,7 +488,8 @@ class TokenRefreshTests(SimpleTestCase):
         self.assertEqual(refreshed, [1])
         # The retry used the freshly-minted token.
         self.assertEqual(
-            mock_req.call_args[1]["headers"]["Authorization"], "Bearer new-token",
+            mock_req.call_args[1]["headers"]["Authorization"],
+            "Bearer new-token",
         )
 
     def test_plain_string_token_does_not_refresh(self):

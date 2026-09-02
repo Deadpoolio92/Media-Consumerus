@@ -89,8 +89,16 @@ class ListProfilesCommandTests(TestCase):
 
 
 _C2 = {"watchlist": 2, "planning_created": 1, "skipped": 1, "unmatched": 0, "errors": 0}
-_C3 = {"series": 3, "written": 2, "unchanged": 0, "skipped": 0, "unmatched": 1,
-       "via_season": 1, "multi_season_skipped": 0, "errors": 0}
+_C3 = {
+    "series": 3,
+    "written": 2,
+    "unchanged": 0,
+    "skipped": 0,
+    "unmatched": 1,
+    "via_season": 1,
+    "multi_season_skipped": 0,
+    "errors": 0,
+}
 
 
 class SyncStatusCommandTests(TestCase):

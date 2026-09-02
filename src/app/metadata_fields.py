@@ -72,9 +72,7 @@ def fetch_for_item(item):
     Network/parse errors propagate to the caller, which swallows them.
     """
     season_numbers = (
-        [item.season_number]
-        if item.media_type == MediaTypes.SEASON.value
-        else None
+        [item.season_number] if item.media_type == MediaTypes.SEASON.value else None
     )
     metadata = services.get_media_metadata(
         item.media_type,

@@ -96,7 +96,6 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Updated {len(to_update)} title(s); {failed} failed; "
-                f"{total} checked.",
+                f"Updated {len(to_update)} title(s); {failed} failed; {total} checked.",
             ),
         )

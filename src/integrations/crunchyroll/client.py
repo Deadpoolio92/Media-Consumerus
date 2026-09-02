@@ -134,7 +134,14 @@ class Token:
 
 
 def _cr_request(
-    method, url, *, params=None, data=None, headers=None, none_on=(), token=None,
+    method,
+    url,
+    *,
+    params=None,
+    data=None,
+    headers=None,
+    none_on=(),
+    token=None,
 ):
     """Call the CR API via the shared session, surfacing the response body on error.
 
@@ -242,9 +249,14 @@ def is_auth_error(exc):
     these tokens, so we don't re-login on those.
     """
     body = str(exc).lower()
-    return any(tok in body for tok in (
-        "invalid_grant", "invalid_client", "unauthorized",
-    ))
+    return any(
+        tok in body
+        for tok in (
+            "invalid_grant",
+            "invalid_client",
+            "unauthorized",
+        )
+    )
 
 
 def account_login(account_username, account_password):
@@ -276,7 +288,10 @@ def account_login(account_username, account_password):
         "device_type": DEVICE_TYPE,
     }
     response = services.session.post(
-        LOGIN_URL, headers=headers, data=data, timeout=settings.REQUEST_TIMEOUT,
+        LOGIN_URL,
+        headers=headers,
+        data=data,
+        timeout=settings.REQUEST_TIMEOUT,
     )
     response.raise_for_status()
     payload = response.json()

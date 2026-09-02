@@ -387,8 +387,7 @@ class MediaManager(models.Manager):
                 if code in codes
             ]
             language_choices += [
-                (code, code)
-                for code in sorted(codes - set(languages.LOCALE_DISPLAY))
+                (code, code) for code in sorted(codes - set(languages.LOCALE_DISPLAY))
             ]
 
         return {

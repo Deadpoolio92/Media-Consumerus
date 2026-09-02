@@ -111,7 +111,12 @@ def backfill_c1(token):
         counts["library"] += 1
         try:
             locales = _resolve_locales(
-                token, item, by_code, by_title, mal_to_cr, counts,
+                token,
+                item,
+                by_code,
+                by_title,
+                mal_to_cr,
+                counts,
             )
             if locales is None:
                 counts["unmatched"] += 1
@@ -127,7 +132,9 @@ def backfill_c1(token):
         except Exception:
             counts["errors"] += 1
             logger.exception(
-                "CR backfill failed for item %s (%s)", item.media_id, item.title,
+                "CR backfill failed for item %s (%s)",
+                item.media_id,
+                item.title,
             )
 
     logger.info(
@@ -266,8 +273,13 @@ def sync_c2_status(token, account, user):
 
     ``token`` must already be profile-confirmed by the caller. Returns a counts dict.
     """
-    counts = {"watchlist": 0, "planning_created": 0, "skipped": 0, "unmatched": 0,
-              "errors": 0}
+    counts = {
+        "watchlist": 0,
+        "planning_created": 0,
+        "skipped": 0,
+        "unmatched": 0,
+        "errors": 0,
+    }
     with disable_fetch_releases():
         for entry in client.fetch_watchlist(token, account):
             counts["watchlist"] += 1
@@ -293,8 +305,11 @@ def sync_c2_status(token, account, user):
     logger.info(
         "CR C2 watchlist: %s planning created, %s already tracked, %s unmatched, "
         "%s errors (of %s)",
-        counts["planning_created"], counts["skipped"], counts["unmatched"],
-        counts["errors"], counts["watchlist"],
+        counts["planning_created"],
+        counts["skipped"],
+        counts["unmatched"],
+        counts["errors"],
+        counts["watchlist"],
     )
     return counts
 
@@ -328,7 +343,8 @@ def _resolve_history_target(token, series_id, season_number, series_title, count
     counts["multi_season_skipped"] += 1
     logger.info(
         "CR C3: multi-season %r S%s unresolved -> skipped (report)",
-        series_title, season_number,
+        series_title,
+        season_number,
     )
     return None
 
@@ -342,8 +358,16 @@ def sync_c3_progress(token, account, user):
 
     ``token`` must already be profile-confirmed by the caller. Returns a counts dict.
     """
-    counts = {"series": 0, "written": 0, "unchanged": 0, "skipped": 0, "unmatched": 0,
-              "via_season": 0, "multi_season_skipped": 0, "errors": 0}
+    counts = {
+        "series": 0,
+        "written": 0,
+        "unchanged": 0,
+        "skipped": 0,
+        "unmatched": 0,
+        "via_season": 0,
+        "multi_season_skipped": 0,
+        "errors": 0,
+    }
 
     furthest = {}  # (series_id, season_number) -> max episode
     titles = {}  # series_id -> series title
@@ -357,7 +381,11 @@ def sync_c3_progress(token, account, user):
             counts["series"] += 1
             try:
                 mal_id = _resolve_history_target(
-                    token, series_id, season_number, titles[series_id], counts,
+                    token,
+                    series_id,
+                    season_number,
+                    titles[series_id],
+                    counts,
                 )
                 if not mal_id:
                     continue
@@ -370,8 +398,13 @@ def sync_c3_progress(token, account, user):
     logger.info(
         "CR C3 history: %s written, %s unchanged, %s skipped, %s unmatched, "
         "%s via-season, %s multi-season-skipped, %s errors (of %s series/season keys)",
-        counts["written"], counts["unchanged"], counts["skipped"], counts["unmatched"],
-        counts["via_season"], counts["multi_season_skipped"], counts["errors"],
+        counts["written"],
+        counts["unchanged"],
+        counts["skipped"],
+        counts["unmatched"],
+        counts["via_season"],
+        counts["multi_season_skipped"],
+        counts["errors"],
         counts["series"],
     )
     return counts

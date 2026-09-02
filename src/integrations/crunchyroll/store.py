@@ -37,7 +37,8 @@ def resolve_etp_rt():
         if not env_val:
             return ""
         row = CrunchyrollCredential.objects.create(
-            pk=CR_SINGLETON_PK, etp_rt=helpers.encrypt(env_val),
+            pk=CR_SINGLETON_PK,
+            etp_rt=helpers.encrypt(env_val),
         )
     if not row.etp_rt:
         return ""

@@ -46,9 +46,7 @@ class AddStreamingLinkTests(TestCase):
             },
         )
 
-        self.assertRedirects(
-            response, self.detail_url, fetch_redirect_response=False
-        )
+        self.assertRedirects(response, self.detail_url, fetch_redirect_response=False)
         item = Item.objects.get(media_id="238", media_type=MediaTypes.MOVIE.value)
         self.assertEqual(item.title, "The Godfather")
         link = StreamingLink.objects.get(item=item)

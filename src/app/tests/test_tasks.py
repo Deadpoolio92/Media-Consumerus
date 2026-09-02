@@ -344,7 +344,7 @@ class AnimeOnAddSignalTests(TestCase):
         self.assertFalse(AnimeAvailability.objects.filter(item=self.item).exists())
 
     def test_broker_failure_on_enqueue_does_not_block_track_anime(self):
-        """CRITICAL: if .delay() itself raises (broker down), tracking still succeeds."""
+        """CRITICAL: if .delay() itself raises (broker down), tracking still works."""
         with patch(
             "app.tasks.fetch_one_availability.delay",
             side_effect=Exception("broker down"),
