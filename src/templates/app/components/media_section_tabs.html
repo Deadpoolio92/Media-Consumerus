@@ -1,7 +1,5 @@
 {% load app_tags %}
-{% load streaming_tags %}
 {% media_section_count media user_medias as section_count %}
-{% is_streamable media_type as streamable %}
 {% if section_count > 1 %}
   <nav class="flex gap-x-6 overflow-x-auto scrollbar-hide border-b border-[#2c3136] {{ extra_classes }}">
     <button @click="tab = 'overview'"
@@ -47,22 +45,6 @@
               class="pb-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors duration-200 cursor-pointer"
               :class="tab === 'episodes' ? 'text-white border-indigo-500' : 'text-gray-400 border-transparent hover:text-white'">
         Episodes
-      </button>
-    {% endif %}
-
-    {% if streamable %}
-      <button @click="tab = 'streaming'"
-              class="pb-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors duration-200 cursor-pointer"
-              :class="tab === 'streaming' ? 'text-white border-indigo-500' : 'text-gray-400 border-transparent hover:text-white'">
-        Streaming
-      </button>
-    {% endif %}
-
-    {% if media_type == MediaTypes.ANIME.value %}
-      <button @click="tab = 'availability'"
-              class="pb-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors duration-200 cursor-pointer"
-              :class="tab === 'availability' ? 'text-white border-indigo-500' : 'text-gray-400 border-transparent hover:text-white'">
-        Availability
       </button>
     {% endif %}
 

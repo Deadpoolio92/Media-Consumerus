@@ -490,19 +490,6 @@ def media_section_count(
         count += 1
     if media.get("episodes"):
         count += 1
-    # E6: the Streaming section always renders for watchable types (so the user can
-    # add their own links even where there's no auto data). E1: anime get an
-    # Availability (dub/sub) section.
-    streamable_types = (
-        MediaTypes.MOVIE.value,
-        MediaTypes.TV.value,
-        MediaTypes.ANIME.value,
-        MediaTypes.SEASON.value,
-    )
-    if media.get("media_type") in streamable_types:
-        count += 1
-    if media.get("media_type") == MediaTypes.ANIME.value:
-        count += 1
     if media.get("time_to_beat"):
         count += 1
     return count

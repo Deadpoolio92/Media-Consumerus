@@ -33,8 +33,8 @@ Yamtrack fork (`origin` = `https://github.com/Deadpoolio92/Media-Consumerus.git`
 branch `dev`; `upstream` = `FuzzyGrim/Yamtrack`, push-disabled). The planning docs from the
 old scratch repo now live here in [planning/](planning/). Yamtrack's own files (`src/`,
 `docs/`, `README.md`, `LICENSE`, `docker-compose*.yml`) are upstream's — leave them
-untouched (see Fork strategy). No enhancement code written yet, but stock Yamtrack now runs
-locally at <http://localhost:7040>.
+untouched (see Fork strategy). Runs locally at <http://localhost:7040>. See the epics below
+for the fork's own enhancements (E1/E2/E6/E9 shipped on top of stock Yamtrack).
 
 **Local run (merge-safe).** Config lives in a git-ignored `docker-compose.override.yml`
 (via `.git/info/exclude`, so it never touches the tracked compose file — the one deliberate
@@ -66,6 +66,21 @@ logic is portable to the fork as-is. See [planning/DESIGN.md](planning/DESIGN.md
 top-level, not nested).
 
 ### ▶ Resume here (next session)
+
+**✅ UPSTREAM MERGED into `dev` (2026-09-02).** `dev` is **0 behind `upstream/dev`** —
+adopted upstream through **0.26.3** (journal page, media-details **section-tabs redesign**,
+stats redesign, Trakt-export import, configurable port, migration fixes, dep bumps). All
+4 merge conflicts resolved (`signals.py`/`urls.py`/`views.py`/`media_details.html`).
+**Personal migrations renumbered to `9001/9002/9003`** (were `0062/0063/0064`) to give a
+huge buffer against upstream number collisions — the live DB was migrated in place
+(`django_migrations` records renamed, then upstream `0062–0064` / `events 0015–0016` /
+`users 0056` applied; backup `db/_pre_upstream_merge_*`). E1/E2/E6/E9 re-verified after
+the redesign **970 tests pass** (excl. pre-existing env/Windows failures). **Layout change
+DONE (2026-09-02):** the fork's **Streaming + Availability cards were moved out of the
+right-side tabs into the left sidebar** of `media_details.html` — sidebar now reads
+"Your History" → **Streaming** → "Actions" → **Availability** → "Details", styled like the
+other sidebar cards. The right-side tabs returned to upstream's stock set (Streaming/
+Availability tab buttons + their `media_section_count` logic removed).
 
 The pivot is locked (fork Yamtrack, stay merge-able, private). Stock Yamtrack runs locally.
 Build order (locked, design doc Approach A): **E3 → E1 → E2 → E10 → E9 → polish → E8.**

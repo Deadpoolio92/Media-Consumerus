@@ -299,6 +299,120 @@
           </div>
         {% endif %}
 
+        {# Streaming (E6): where-to-watch + manual links #}
+        {% region_watch_link media.providers watch_provider_region as watch_link %}
+        {% crunchyroll_url media.media_id media.source media_type as crunchyroll_link %}
+        {% is_streamable media_type as streamable %}
+        {% manual_streaming_links media.media_id media.source media_type media.season_number as manual_links %}
+        {% if streamable or watch_provider_region == "UNSET" or watch_providers or crunchyroll_link %}
+          <h2 class="text-xl font-bold mb-4">Streaming</h2>
+          <div class="bg-[#2a2f35] p-4 rounded-lg mb-6 text-center md:text-start">
+            {% if watch_provider_region == "UNSET" %}
+              {% url 'preferences' as preferences_url %}
+              <p class="text-sm text-gray-300">
+                Watch provider region is not configured. Set a region or disable this feature in the
+                <a href="{{ preferences_url }}"
+                   class="text-indigo-400 hover:text-indigo-300 hover:underline">preferences</a>.
+              </p>
+            {% elif watch_providers %}
+              <div class="flex flex-wrap gap-3">
+                {% for provider in watch_providers %}
+                  {% if watch_link %}
+                    <a href="{{ watch_link }}"
+                       target="_blank"
+                       rel="noopener"
+                       title="Where to watch — {{ provider.provider_name }}">
+                      <div class="flex items-center gap-x-3 bg-[#2a2f35] rounded-lg p-2 pr-4">
+                        <img class="w-10 rounded-md"
+                             src="{{ provider.image }}"
+                             alt="{{ provider.provider_name }}" />
+                        <span class="text-sm font-medium text-gray-200">{{ provider.provider_name }}</span>
+                      </div>
+                    </a>
+                  {% else %}
+                    <div class="flex items-center gap-x-3 bg-[#2a2f35] rounded-lg p-2 pr-4">
+                      <img class="w-10 rounded-md"
+                           src="{{ provider.image }}"
+                           alt="{{ provider.provider_name }}" />
+                      <span class="text-sm font-medium text-gray-200">{{ provider.provider_name }}</span>
+                    </div>
+                  {% endif %}
+                {% endfor %}
+              </div>
+              {% if watch_link %}
+                <a href="{{ watch_link }}"
+                   target="_blank"
+                   rel="noopener"
+                   class="inline-block mt-3 text-sm text-gray-200 hover:text-indigo-500 transition-colors duration-200">
+                  Where to watch
+                </a>
+              {% endif %}
+            {% endif %}
+            {% if crunchyroll_link %}
+              <a href="{{ crunchyroll_link }}"
+                 target="_blank"
+                 rel="noopener"
+                 class="inline-block mt-1 text-sm text-orange-400 hover:underline transition-colors duration-200">
+                Crunchyroll
+              </a>
+            {% endif %}
+            {% if manual_links %}
+              <div class="mt-3 space-y-1">
+                {% for link in manual_links %}
+                  <div class="flex items-center justify-between gap-2">
+                    <a href="{{ link.url }}"
+                       target="_blank"
+                       rel="noopener"
+                       class="text-sm text-gray-200 hover:text-indigo-500 transition-colors duration-200 truncate">{{ link.name }}</a>
+                    <form method="post"
+                          action="{% url 'delete_streaming_link' link.id %}">
+                      {% csrf_token %}
+                      <input type="hidden" name="next" value="{{ request.path }}">
+                      <button type="submit"
+                              title="Remove link"
+                              class="text-gray-500 hover:text-gray-200 transition-colors cursor-pointer text-sm">✕</button>
+                    </form>
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+            {% if streamable %}
+              <div class="mt-3" x-data="{ show: false }">
+                <button type="button"
+                        @click="show = !show"
+                        class="text-sm text-gray-400 hover:text-indigo-500 transition-colors cursor-pointer">
+                  <span x-show="!show">+ Add streaming link</span>
+                  <span x-show="show">Cancel</span>
+                </button>
+                <form method="post"
+                      action="{% media_view_url 'add_streaming_link' media %}"
+                      x-show="show"
+                      class="mt-2 flex flex-col gap-2">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.path }}">
+                  <input type="hidden" name="title" value="{{ media.title }}">
+                  <input type="hidden" name="image" value="{{ media.image }}">
+                  <input class="w-full p-2 bg-[#39404b] rounded-md text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-[#4a9eff] appearance-none text-sm"
+                         name="name"
+                         type="text"
+                         maxlength="100"
+                         placeholder="Display name (e.g. Netflix)"
+                         required>
+                  <input class="w-full p-2 bg-[#39404b] rounded-md text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-[#4a9eff] appearance-none text-sm"
+                         name="url"
+                         type="url"
+                         placeholder="https://..."
+                         required>
+                  <button type="submit"
+                          class="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm cursor-pointer">
+                    Add link
+                  </button>
+                </form>
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+
         {# Actions #}
         <h2 class="text-xl font-bold mb-4">Actions</h2>
         <div class="bg-[#2a2f35] rounded-lg overflow-hidden divide-y divide-white/5 mb-6">
@@ -372,6 +486,50 @@
             <span class="font-medium">Sync metadata</span>
           </button>
         </div>
+
+        {# Availability (E1): dub/sub — anime only #}
+        {% if media_type == MediaTypes.ANIME.value %}
+          <h2 class="text-xl font-bold mb-4">Availability</h2>
+          <div class="bg-[#2a2f35] p-4 rounded-lg mb-6 text-center md:text-start">
+            {% if availability %}
+              <div class="mb-4">
+                <h3 class="text-sm font-semibold text-gray-400 mb-2">DUBS AVAILABLE</h3>
+                {% if availability.audio_locales %}
+                  <div class="flex flex-wrap gap-2">
+                    {% for code in availability.audio_locales %}
+                      <span class="px-3 py-1 bg-sky-700 text-white rounded-full text-sm">{{ code|locale_display }}</span>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <p class="text-gray-200">Not recorded</p>
+                {% endif %}
+              </div>
+              <div class="mb-4">
+                <h3 class="text-sm font-semibold text-gray-400 mb-2">SUBS AVAILABLE</h3>
+                {% if availability.subtitle_locales %}
+                  <div class="flex flex-wrap gap-2">
+                    {% for code in availability.subtitle_locales %}
+                      <span class="px-3 py-1 bg-teal-700 text-white rounded-full text-sm">{{ code|locale_display }}</span>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <p class="text-gray-200">Not recorded</p>
+                {% endif %}
+              </div>
+              <p class="text-xs text-gray-400">
+                via {{ availability.get_source_display }} · updated {{ availability.updated_at|timesince }} ago
+              </p>
+              {% mydublist_credit availability.source as credit %}
+              {% if credit %}
+                <p class="text-xs text-gray-500 mt-1">
+                  <a href="https://mydublist.com" target="_blank" rel="noopener" class="hover:underline">{{ credit }}</a>
+                </p>
+              {% endif %}
+            {% else %}
+              <p class="text-gray-200">Not recorded</p>
+            {% endif %}
+          </div>
+        {% endif %}
 
         {# Media Details #}
         <h2 class="text-xl font-bold mb-4">Details</h2>
@@ -678,168 +836,6 @@
           </div>
         {% endif %}
 
-        {# Streaming providers #}
-        {# E6: "where to watch" — auto links (JustWatch + Crunchyroll) plus the user's #}
-        {# own manual links, addable on any watchable title. See streaming_tags.py. #}
-        {% region_watch_link media.providers watch_provider_region as watch_link %}
-        {% crunchyroll_url media.media_id media.source media_type as crunchyroll_link %}
-        {% is_streamable media_type as streamable %}
-        {% manual_streaming_links media.media_id media.source media_type media.season_number as manual_links %}
-        {% if streamable or watch_provider_region == "UNSET" or watch_providers or crunchyroll_link %}
-          <section class="mb-8" x-show="tab === 'overview' || tab === 'streaming'">
-            <h2 class="text-xl font-bold mb-4">Streaming</h2>
-            {% if watch_provider_region == "UNSET" %}
-              {% url 'preferences' as preferences_url %}
-              <p class="text-sm text-gray-300">
-                Watch provider region is not configured. Set a region or disable this feature in the
-                <a href="{{ preferences_url }}"
-                   class="text-indigo-400 hover:text-indigo-300 hover:underline">preferences</a>.
-              </p>
-            {% elif watch_providers %}
-              <div class="flex flex-wrap gap-3">
-                {% for provider in watch_providers %}
-                  {% if watch_link %}
-                    <a href="{{ watch_link }}"
-                       target="_blank"
-                       rel="noopener"
-                       title="Where to watch — {{ provider.provider_name }}">
-                      <div class="flex items-center gap-x-3 bg-[#2a2f35] rounded-lg p-2 pr-4">
-                        <img class="w-10 rounded-md"
-                             src="{{ provider.image }}"
-                             alt="{{ provider.provider_name }}" />
-                        <span class="text-sm font-medium text-gray-200">{{ provider.provider_name }}</span>
-                      </div>
-                    </a>
-                  {% else %}
-                    <div class="flex items-center gap-x-3 bg-[#2a2f35] rounded-lg p-2 pr-4">
-                      <img class="w-10 rounded-md"
-                           src="{{ provider.image }}"
-                           alt="{{ provider.provider_name }}" />
-                      <span class="text-sm font-medium text-gray-200">{{ provider.provider_name }}</span>
-                    </div>
-                  {% endif %}
-                {% endfor %}
-              </div>
-              {% if watch_link %}
-                <a href="{{ watch_link }}"
-                   target="_blank"
-                   rel="noopener"
-                   class="inline-block mt-3 text-sm text-gray-200 hover:text-indigo-500 transition-colors duration-200">
-                  Where to watch
-                </a>
-              {% endif %}
-            {% endif %}
-            {# Crunchyroll deep-link (MAL-sourced anime) — region-independent #}
-            {% if crunchyroll_link %}
-              <a href="{{ crunchyroll_link }}"
-                 target="_blank"
-                 rel="noopener"
-                 class="inline-block mt-1 text-sm text-orange-400 hover:underline transition-colors duration-200">
-                Crunchyroll
-              </a>
-            {% endif %}
-            {# User-added manual links (each removable) #}
-            {% if manual_links %}
-              <div class="mt-3 space-y-1">
-                {% for link in manual_links %}
-                  <div class="flex items-center justify-between gap-2">
-                    <a href="{{ link.url }}"
-                       target="_blank"
-                       rel="noopener"
-                       class="text-sm text-gray-200 hover:text-indigo-500 transition-colors duration-200 truncate">{{ link.name }}</a>
-                    <form method="post"
-                          action="{% url 'delete_streaming_link' link.id %}">
-                      {% csrf_token %}
-                      <input type="hidden" name="next" value="{{ request.path }}">
-                      <button type="submit"
-                              title="Remove link"
-                              class="text-gray-500 hover:text-gray-200 transition-colors cursor-pointer text-sm">✕</button>
-                    </form>
-                  </div>
-                {% endfor %}
-              </div>
-            {% endif %}
-            {# Add-your-own-link form (watchable types) #}
-            {% if streamable %}
-              <div class="mt-3" x-data="{ show: false }">
-                <button type="button"
-                        @click="show = !show"
-                        class="text-sm text-gray-400 hover:text-indigo-500 transition-colors cursor-pointer">
-                  <span x-show="!show">+ Add streaming link</span>
-                  <span x-show="show">Cancel</span>
-                </button>
-                <form method="post"
-                      action="{% media_view_url 'add_streaming_link' media %}"
-                      x-show="show"
-                      class="mt-2 flex flex-col gap-2">
-                  {% csrf_token %}
-                  <input type="hidden" name="next" value="{{ request.path }}">
-                  <input type="hidden" name="title" value="{{ media.title }}">
-                  <input type="hidden" name="image" value="{{ media.image }}">
-                  <input class="w-full p-2 bg-[#39404b] rounded-md text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-[#4a9eff] appearance-none text-sm"
-                         name="name"
-                         type="text"
-                         maxlength="100"
-                         placeholder="Display name (e.g. Netflix)"
-                         required>
-                  <input class="w-full p-2 bg-[#39404b] rounded-md text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-[#4a9eff] appearance-none text-sm"
-                         name="url"
-                         type="url"
-                         placeholder="https://..."
-                         required>
-                  <button type="submit"
-                          class="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm cursor-pointer">
-                    Add link
-                  </button>
-                </form>
-              </div>
-            {% endif %}
-          </section>
-        {% endif %}
-
-        {# Dub/sub availability (anime only) — title-level, NOT a watch record #}
-        {% if media_type == MediaTypes.ANIME.value %}
-          <section class="mb-8" x-show="tab === 'overview' || tab === 'availability'">
-            <h2 class="text-xl font-bold mb-4">Availability</h2>
-            {% if availability %}
-              <div class="mb-4">
-                <h3 class="text-sm font-semibold text-gray-400 mb-2">DUBS AVAILABLE</h3>
-                {% if availability.audio_locales %}
-                  <div class="flex flex-wrap gap-2">
-                    {% for code in availability.audio_locales %}
-                      <span class="px-3 py-1 bg-sky-700 text-white rounded-full text-sm">{{ code|locale_display }}</span>
-                    {% endfor %}
-                  </div>
-                {% else %}
-                  <p class="text-gray-200">Not recorded</p>
-                {% endif %}
-              </div>
-              <div class="mb-4">
-                <h3 class="text-sm font-semibold text-gray-400 mb-2">SUBS AVAILABLE</h3>
-                {% if availability.subtitle_locales %}
-                  <div class="flex flex-wrap gap-2">
-                    {% for code in availability.subtitle_locales %}
-                      <span class="px-3 py-1 bg-teal-700 text-white rounded-full text-sm">{{ code|locale_display }}</span>
-                    {% endfor %}
-                  </div>
-                {% else %}
-                  <p class="text-gray-200">Not recorded</p>
-                {% endif %}
-              </div>
-              <p class="text-xs text-gray-400">
-                via {{ availability.get_source_display }} · updated {{ availability.updated_at|timesince }} ago
-              </p>
-              {% mydublist_credit availability.source as credit %}
-              {% if credit %}
-                <p class="text-xs text-gray-500 mt-1">
-                  <a href="https://mydublist.com" target="_blank" rel="noopener" class="hover:underline">{{ credit }}</a>
-                </p>
-              {% endif %}
-            {% else %}
-              <p class="text-gray-200">Not recorded</p>
-            {% endif %}
-          </section>
-        {% endif %}
 
         {# Time to Beat #}
         {% if media.time_to_beat %}
