@@ -10,8 +10,10 @@ the fork's MAL-keyed rows. :func:`cr_code_to_mal` tries the seed first, then a
 **Jikan-search fallback** (port of E10's title scorer) gated to **exact-normalized
 matches only** — a wrong MAL id would write status/progress onto the wrong show, so the
 fallback follows the same skip-don't-guess rule as everywhere else (a non-exact match
-returns ``None`` and the caller skips + reports). Resolutions (hits *and* misses) are
-cached in the Django cache so the daily beat doesn't re-hit Jikan for known titles.
+returns ``None`` and the caller skips + reports). Resolutions (hits *and* genuine
+misses) are cached in the Django cache so the daily beat doesn't re-hit Jikan for known
+titles; a **Jikan outage is never cached** (see :class:`JikanSearchError`) so it can't
+poison the cache as month-long unresolvable misses.
 
 :func:`resolve_title_to_mal` is the shared title->MAL primitive; D3's hybrid
 multi-season path reuses it to resolve each CR *season* title to its own MAL id.
@@ -31,6 +33,16 @@ from django.core.cache import cache
 logger = logging.getLogger(__name__)
 
 SEED_PATH = Path(__file__).parent / "data" / "cr_mal_map.json"
+
+
+class JikanSearchError(RuntimeError):
+    """Jikan was unreachable or returned a non-200/parseable response.
+
+    Raised so callers can tell a *transient outage* apart from a *real miss*: a
+    successful search with no candidate returns ``[]`` (a cacheable miss), while a
+    failed fetch raises this (and must **never** be cached as unresolvable — that's how
+    the 2026-08-24 outage became month-long misses). ``args[0]`` is the query.
+    """
 
 # Public web base for series deep-links (E6). CR redirects the code-only
 # /series/{code} URL to the canonical slug, so no slug lookup is needed.
@@ -107,8 +119,10 @@ def normalize(text):
 def _jikan_search(query):
     """Return Jikan anime candidates for ``query`` as ``[{mal_id, titles}]``.
 
-    The single network boundary of the resolver (tests stub this). A failed/empty
-    search returns ``[]`` so the caller treats it as "unresolved" (skip), never a crash.
+    Returns ``[]`` only for a *successful* search that found no candidates. A network /
+    response / parse failure raises :class:`JikanSearchError` — so the caller can
+    distinguish a genuine miss (cacheable) from an outage (never cache). Tests stub
+    this one function; the rate-limit sleep never runs under test.
     """
     time.sleep(0.5)  # Jikan is ~3 req/s; be polite (never runs under test — stubbed)
     try:
@@ -119,9 +133,9 @@ def _jikan_search(query):
         )
         resp.raise_for_status()
         data = resp.json()
-    except (requests.exceptions.RequestException, ValueError):
+    except (requests.exceptions.RequestException, ValueError) as exc:
         logger.warning("Jikan search failed for %r", query)
-        return []
+        raise JikanSearchError(query) from exc
 
     candidates = []
     for node in (data or {}).get("data", []):
@@ -147,6 +161,11 @@ def resolve_title_to_mal(title):
     normalized form equals the query's, so a fuzzy near-miss never writes the wrong
     show's status/progress. Result (hit or miss) is cached by normalized title.
 
+    A Jikan outage raises :class:`JikanSearchError` (the ``_jikan_search`` call is left
+    uncaught here) so the **miss is never cached** for a transient failure — see the
+    class docstring. Callers that don't want it to propagate (``cr_code_to_mal``) catch
+    it and return ``None`` without caching.
+
     Used directly for D3's per-season resolve (each CR season title -> its own MAL id).
     """
     norm = normalize(title)
@@ -159,6 +178,8 @@ def resolve_title_to_mal(title):
         return cached or None  # _MISS ("") -> None
 
     mal_id = None
+    # _jikan_search raises JikanSearchError on an outage; cache.set below is then
+    # skipped, so a failed fetch is never persisted as a month-long miss.
     for cand in _jikan_search(title):
         if any(normalize(t) == norm for t in cand["titles"]):
             mal_id = cand["mal_id"]
@@ -176,7 +197,9 @@ def cr_code_to_mal(code, title):
     is cached so the beat resolves each new CR series at most once a month.
 
     Returns ``None`` for an unresolvable code — the caller (C2/C3) then skips that title
-    and counts it for the run summary rather than guessing a MAL id.
+    and counts it for the run summary rather than guessing a MAL id. A Jikan outage is
+    *not* an unresolvable code: it returns ``None`` but caches nothing, so the next beat
+    retries instead of carrying a manufactured month-long miss.
     """
     seeded = load_cr_mal_map().get(code)
     if seeded:
@@ -187,6 +210,13 @@ def cr_code_to_mal(code, title):
     if cached is not None:
         return cached or None
 
-    mal_id = resolve_title_to_mal(title)
+    try:
+        mal_id = resolve_title_to_mal(title)
+    except JikanSearchError:
+        # Transient outage, not a real miss: leave key uncached and let the beat retry.
+        logger.warning(
+            "Jikan unavailable while resolving %r; %s left uncached", title, key
+        )
+        return None
     cache.set(key, mal_id or _MISS, RESOLVE_CACHE_TTL)
     return mal_id

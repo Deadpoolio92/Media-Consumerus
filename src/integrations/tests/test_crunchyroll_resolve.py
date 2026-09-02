@@ -147,3 +147,58 @@ class CrCodeToMalTests(SimpleTestCase):
         """A new code whose title can't be matched -> None (caller skips)."""
         with patch.object(resolve, "_jikan_search", return_value=[]):
             self.assertIsNone(resolve.cr_code_to_mal("GTNOPE", "Mystery"))
+
+
+class JikanOutageTests(SimpleTestCase):
+    """A Jikan outage must never be cached as a month-long miss (2026-08-24 bug)."""
+
+    def setUp(self):
+        """Isolate the resolution cache per test."""
+        cache.clear()
+
+    def _outage(self):
+        return patch.object(
+            resolve,
+            "_jikan_search",
+            side_effect=resolve.JikanSearchError("offline"),
+        )
+
+    def test_title_outage_propagates_and_is_not_cached(self):
+        """resolve_title_to_mal raises on outage and stores nothing in the cache."""
+        key = "cr:resolve:title:show q"
+        with self._outage(), self.assertRaises(resolve.JikanSearchError):
+            resolve.resolve_title_to_mal("Show Q")
+        # The failed fetch must not leave a cached miss behind.
+        self.assertIsNone(cache.get(key))
+        # Once Jikan is back the re-hit actually resolves -> nothing was poisoned.
+        candidates = [{"mal_id": "88", "titles": ["Show Q"]}]
+        with patch.object(
+            resolve, "_jikan_search", return_value=candidates
+        ) as mock_search:
+            self.assertEqual(resolve.resolve_title_to_mal("Show Q"), "88")
+        mock_search.assert_called_once()
+
+    def test_code_outage_returns_none_without_caching(self):
+        """cr_code_to_mal returns None on an outage but leaves the code key empty."""
+        key = "cr:resolve:code:GTXOFFLINE"
+        with self._outage():
+            self.assertIsNone(resolve.cr_code_to_mal("GTXOFFLINE", "Show Q"))
+        self.assertIsNone(cache.get(key))
+        # The next beat re-hits Jikan instead of reading a stale miss.
+        candidates = [{"mal_id": "88", "titles": ["Show Q"]}]
+        with patch.object(
+            resolve, "_jikan_search", return_value=candidates
+        ) as mock_search:
+            self.assertEqual(resolve.cr_code_to_mal("GTXOFFLINE", "Show Q"), "88")
+        mock_search.assert_called_once()
+
+    def test_genuine_miss_is_still_cached(self):
+        """A successful empty search (real miss) is cached; only outages aren't."""
+        key = "cr:resolve:title:neverseen"
+        with patch.object(
+            resolve, "_jikan_search", return_value=[]
+        ) as miss_search:
+            self.assertIsNone(resolve.resolve_title_to_mal("NeverSeen"))
+            self.assertIsNone(resolve.resolve_title_to_mal("NeverSeen"))
+        miss_search.assert_called_once()  # miss cached -> no repeat Jikan call
+        self.assertEqual(cache.get(key), resolve._MISS)

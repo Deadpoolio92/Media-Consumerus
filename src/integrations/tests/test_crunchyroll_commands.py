@@ -7,6 +7,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -132,3 +133,33 @@ class SyncStatusCommandTests(TestCase):
             self.assertRaises(CommandError),
         ):
             call_command("sync_crunchyroll_status")
+
+
+class FlushCrResolveCacheCommandTests(SimpleTestCase):
+    """`flush_cr_resolve_cache` — evicts outage-poisoned cr:resolve:* keys once."""
+
+    def setUp(self):
+        """Isolate the cache per test."""
+        cache.clear()
+
+    def test_flushes_only_cr_resolve_keys(self):
+        """Deletes every cr:resolve:* key and leaves other cache keys alone."""
+        cache.set("cr:resolve:title:kaguya sama love is war", "104578")
+        cache.set("cr:resolve:code:GTSOMECODE", "")
+        cache.set("unrelated:key", "keep-me")
+
+        out = StringIO()
+        call_command("flush_cr_resolve_cache", stdout=out)
+
+        self.assertIsNone(cache.get("cr:resolve:title:kaguya sama love is war"))
+        self.assertIsNone(cache.get("cr:resolve:code:GTSOMECODE"))
+        self.assertEqual(cache.get("unrelated:key"), "keep-me")
+        self.assertIn("Flushed 2 cr:resolve:* cache key", out.getvalue())
+
+    def test_dry_run_does_not_delete(self):
+        """--dry-run reports the poisoned keys without removing them."""
+        cache.set("cr:resolve:title:some show", "")
+        out = StringIO()
+        call_command("flush_cr_resolve_cache", "--dry-run", stdout=out)
+        self.assertEqual(cache.get("cr:resolve:title:some show"), "")
+        self.assertIn("DRY RUN", out.getvalue())
