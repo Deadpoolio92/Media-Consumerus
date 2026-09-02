@@ -324,3 +324,68 @@ class JikanRetrySearchTests(SimpleTestCase):
         ):
             resolve._jikan_search("Foo")
         mock_get.assert_called_once()
+
+
+class JikanThrottleTests(SimpleTestCase):
+    """The global per-second limiter is invoked on every Jikan search."""
+
+    def test_search_invokes_global_throttle(self):
+        """_jikan_search goes through _jikan_throttle before each request."""
+        with (
+            patch.object(resolve, "_jikan_throttle") as mock_throttle,
+            patch.object(resolve.requests, "get", return_value=_ok_resp()),
+        ):
+            resolve._jikan_search("Foo")
+        mock_throttle.assert_called_once()
+
+
+class GenericSeasonLabelTests(SimpleTestCase):
+    """_is_generic_season_label — CR's generic season labels vs real titles."""
+
+    def test_recognizes_generic_labels(self):
+        """Pure 'Season N' / OVA / Special / Movie labels are generic."""
+        for label in (
+            "Season 2", "Season 10", "OVAs", "OVA", "Specials", "Special",
+            "Movies", "Movie",
+        ):
+            self.assertTrue(
+                resolve._is_generic_season_label(resolve.normalize(label)),
+                label,
+            )
+
+    def test_ignores_real_titles(self):
+        """A real title that merely contains 'Season N' is not generic."""
+        for label in (
+            "Attack on Titan Season 2", "Season 2: Part 2", "Frieren",
+        ):
+            self.assertFalse(
+                resolve._is_generic_season_label(resolve.normalize(label)),
+                label,
+            )
+
+
+class GenericSeasonSkipTests(SimpleTestCase):
+    """resolve_title_to_mal skips generic labels without hitting Jikan."""
+
+    def setUp(self):
+        """Isolate the resolution cache per test."""
+        cache.clear()
+
+    def test_generic_label_skips_jikan_and_caches_miss(self):
+        """'Season 2' never queries Jikan and is cached as a deterministic miss."""
+        with patch.object(resolve, "_jikan_search") as mock_search:
+            self.assertIsNone(resolve.resolve_title_to_mal("Season 2"))
+            self.assertIsNone(resolve.resolve_title_to_mal("Season 2"))
+        mock_search.assert_not_called()
+        self.assertEqual(cache.get("cr:resolve:title:season 2"), resolve._MISS)
+
+    def test_real_title_still_queries_jikan(self):
+        """A real title containing 'Season 2' still resolves via Jikan."""
+        candidates = [{"mal_id": "1", "titles": ["Attack on Titan Season 2"]}]
+        with patch.object(
+            resolve, "_jikan_search", return_value=candidates,
+        ) as mock_search:
+            self.assertEqual(
+                resolve.resolve_title_to_mal("Attack on Titan Season 2"), "1",
+            )
+        mock_search.assert_called_once()

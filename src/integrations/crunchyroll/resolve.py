@@ -22,6 +22,7 @@ multi-season path reuses it to resolve each CR *season* title to its own MAL id.
 import json
 import logging
 import re
+import threading
 import time
 import unicodedata
 from functools import lru_cache
@@ -63,6 +64,18 @@ JIKAN_BASE_BACKOFF = 1.5
 JIKAN_MAX_WAIT = 8
 JIKAN_RATE_LIMITED = 429
 JIKAN_INTERNAL_ERROR = 500
+
+# Global per-second Jikan throttle: at most one request every JIKAN_MIN_INTERVAL
+# seconds across the whole process (all titles, all retries, all workers), so a burst
+# of ~50 history keys can't trip Jikan's free-tier rate limit. The lock makes it safe
+# under concurrent Celery workers.
+JIKAN_MIN_INTERVAL = 1.0
+_jikan_lock = threading.Lock()
+_jikan_last = [0.0]  # mutable holder (avoids a module `global` in _jikan_throttle)
+
+# CR's generic season labels (D3 multi-season path) can never resolve to a real MAL
+# title — skip them so they never burn a Jikan request. Matches the *normalized* form.
+_GENERIC_SEASON_RE = re.compile(r"^(season \d+|ova|ovas|specials?|movies?|special)$")
 
 # Resolutions are stable; cache hits and misses for a month so the daily beat is
 # Jikan-polite. A miss is cached as the empty string (distinct from a cache absence).
@@ -158,6 +171,32 @@ def _retry_delay(resp, attempt):
     return min(JIKAN_BASE_BACKOFF * (2 ** (attempt - 1)), JIKAN_MAX_WAIT)
 
 
+def _jikan_throttle():
+    """Block until at least ``JIKAN_MIN_INTERVAL`` since the last Jikan request.
+
+    A process-wide per-second limiter (thread-safe) so a burst of history keys can't
+    trip Jikan's free-tier rate limit. Replaces the old per-call ``time.sleep(0.5)``,
+    which only spaced *one* request and ignored retries/concurrency.
+    """
+    with _jikan_lock:
+        now = time.monotonic()
+        wait = JIKAN_MIN_INTERVAL - (now - _jikan_last[0])
+        if wait > 0:
+            time.sleep(wait)
+        _jikan_last[0] = time.monotonic()
+
+
+def _is_generic_season_label(norm):
+    """Return True iff ``norm`` is a pure CR generic season label (never a real title).
+
+    The D3 multi-season path resolves each CR *season* title to its own MAL id, but CR
+    labels many seasons with generic names ("Season 2", "OVAs", "Specials") that can
+    never exact-match a real anime. Skipping them avoids a guaranteed-waste Jikan call
+    (and the 429s those bursts cause). ``norm`` is the already-normalized title.
+    """
+    return bool(_GENERIC_SEASON_RE.match(norm))
+
+
 def _jikan_search(query):
     """Return Jikan anime candidates for ``query`` as ``[{mal_id, titles}]``.
 
@@ -175,7 +214,7 @@ def _jikan_search(query):
     """
     data = None
     for attempt in range(1, JIKAN_MAX_ATTEMPTS + 1):
-        time.sleep(0.5)  # Jikan is ~3 req/s; be polite (never runs under test)
+        _jikan_throttle()  # global per-second limiter (never runs under test)
         resp = None
         try:
             resp = requests.get(
@@ -236,6 +275,13 @@ def resolve_title_to_mal(title):
     cached = cache.get(key)
     if cached is not None:
         return cached or None  # _MISS ("") -> None
+
+    # A pure generic season label ("Season 2", "OVAs", …) can never be a real anime —
+    # skip the Jikan call entirely and cache the deterministic miss so the daily beat
+    # never re-queries it (D3 multi-season path).
+    if _is_generic_season_label(norm):
+        cache.set(key, _MISS, RESOLVE_CACHE_TTL)
+        return None
 
     mal_id = None
     # _jikan_search raises JikanSearchError on an outage; cache.set below is then
