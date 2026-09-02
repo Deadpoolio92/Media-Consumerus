@@ -246,7 +246,7 @@ class MediaDetailsViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.context["availability"])
-        self.assertNotContains(response, "AVAILABILITY")
+        self.assertNotContains(response, "Availability")
 
     @patch("app.providers.services.get_media_metadata")
     def test_anime_details_with_no_availability_row_shows_not_recorded(
@@ -276,7 +276,7 @@ class MediaDetailsViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.context["availability"])
-        self.assertContains(response, "AVAILABILITY")
+        self.assertContains(response, "Availability")
         self.assertContains(response, "Not recorded")
 
     @patch("app.providers.services.get_media_metadata")

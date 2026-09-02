@@ -2,7 +2,6 @@ import logging
 
 from celery import states
 from celery.signals import before_task_publish
-from django.db.backends.signals import connection_created
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django_celery_results.models import TaskResult
@@ -11,16 +10,6 @@ from app.models import TV, Anime, Game, Movie, Season
 from app.tasks import fetch_one_availability, fetch_one_metadata
 
 logger = logging.getLogger(__name__)
-
-
-@receiver(connection_created)
-def setup_sqlite_pragmas(sender, connection, **kwargs):  # noqa: ARG001
-    """Set up SQLite pragmas for WAL mode and busy timeout on connection creation."""
-    if connection.vendor == "sqlite":
-        cursor = connection.cursor()
-        cursor.execute("PRAGMA journal_mode=wal;")
-        cursor.execute("PRAGMA busy_timeout=5000;")
-        cursor.close()
 
 
 @receiver(post_save, sender=Anime)

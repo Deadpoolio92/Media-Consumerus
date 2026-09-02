@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('app', '0061_episode_item_not_null'),
+        ('app', '0064_restore_tz_shifted_media_dates'),
     ]
 
     operations = [

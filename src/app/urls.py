@@ -86,6 +86,7 @@ urlpatterns = [
         name="search_parent_season",
     ),
     path("statistics", views.statistics, name="statistics"),
+    path("journal", views.journal, name="journal"),
     # E6: user-added streaming links (with/without a season number)
     path(
         "details/streaming/add/<source:source>/<media_type:media_type>/<str:media_id>",
