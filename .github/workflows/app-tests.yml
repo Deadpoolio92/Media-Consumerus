@@ -71,10 +71,14 @@ jobs:
           if [ -n "${{ secrets.COMICVINE_API }}" ]; then echo "COMICVINE_API=${{ secrets.COMICVINE_API }}" >> $GITHUB_ENV; fi
 
       - name: Run Tests
+        working-directory: src
+        env:
+          DJANGO_SETTINGS_MODULE: config.test_settings
         run: |
-          uv run coverage run src/manage.py test app users integrations lists events
+          uv run coverage run -m pytest app/tests users/tests integrations/tests lists/tests events/tests
 
       - name: Build Coverage Report
+        working-directory: src
         run: |
           uv run coverage combine
           uv run coverage report
