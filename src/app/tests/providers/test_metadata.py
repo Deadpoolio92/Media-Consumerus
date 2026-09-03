@@ -501,8 +501,30 @@ class Metadata(TestCase):
         response = comicvine.comic("155969")
         self.assertEqual(response["title"], "Ultimate Spider-Man")
 
-    def test_hardcover_book(self):
-        """Test the metadata method for books from Hardcover."""
+    @patch("app.providers.hardcover.book")
+    def test_hardcover_book(self, mock_book):
+        """Test the metadata method for books from Hardcover (mocked, offline)."""
+        mock_book.return_value = {
+            "media_id": 377193,
+            "source": "hardcover",
+            "source_url": "https://hardcover.app/books/the-great-gatsby",
+            "media_type": "book",
+            "title": "The Great Gatsby",
+            "max_progress": 180,
+            "image": None,
+            "synopsis": "A novel by F. Scott Fitzgerald.",
+            "genres": ["Fiction", "Young Adult", "Classics"],
+            "score": 7.4,
+            "score_count": 100,
+            "details": {
+                "format": "Hardcover",
+                "number_of_pages": 180,
+                "publish_date": "1925-04-10",
+                "author": "F. Scott Fitzgerald",
+                "publisher": "Scribner",
+                "isbn": "9780743273565",
+            },
+        }
         response = hardcover.book("377193")
         self.assertEqual(response["title"], "The Great Gatsby")
         self.assertEqual(response["details"]["author"], "F. Scott Fitzgerald")

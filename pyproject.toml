@@ -51,6 +51,7 @@ test = [
   "fakeredis[lua]~=2.35.1",
   "pytest-django~=4.12.0",
   "pytest-playwright~=0.8.0",
+  "pytest-rerunfailures~=14.0",
   "tblib~=3.2.2",
 ]
 dev = [

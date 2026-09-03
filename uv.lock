@@ -1889,6 +1889,19 @@ wheels = [
 ]
 
 [[package]]
+name = "pytest-rerunfailures"
+version = "14.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cc/a4/6de45fe850759e94aa9a55cda807c76245af1941047294df26c851dfb4a9/pytest-rerunfailures-14.0.tar.gz", hash = "sha256:4a400bcbcd3c7a4ad151ab8afac123d90eca3abe27f98725dc4d9702887d2e92", size = 21350, upload-time = "2024-03-13T08:21:39.444Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dc/e7/e75bd157331aecc190f5f8950d7ea3d2cf56c3c57fb44da70e60b221133f/pytest_rerunfailures-14.0-py3-none-any.whl", hash = "sha256:4197bdd2eaeffdbf50b5ea6e7236f47ff0e44d1def8dae08e409f536d84e7b32", size = 12709, upload-time = "2024-03-13T08:21:37.199Z" },
+]
+
+[[package]]
 name = "python-crontab"
 version = "3.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2407,6 +2420,7 @@ dev = [
     { name = "pre-commit" },
     { name = "pytest-django" },
     { name = "pytest-playwright" },
+    { name = "pytest-rerunfailures" },
     { name = "ruff" },
     { name = "tblib" },
 ]
@@ -2425,6 +2439,7 @@ test = [
     { name = "fakeredis", extra = ["lua"] },
     { name = "pytest-django" },
     { name = "pytest-playwright" },
+    { name = "pytest-rerunfailures" },
     { name = "tblib" },
 ]
 
@@ -2468,6 +2483,7 @@ dev = [
     { name = "pre-commit", specifier = "~=4.6.1" },
     { name = "pytest-django", specifier = "~=4.12.0" },
     { name = "pytest-playwright", specifier = "~=0.8.0" },
+    { name = "pytest-rerunfailures", specifier = "~=14.0" },
     { name = "ruff", specifier = "~=0.16.1" },
     { name = "tblib", specifier = "~=3.2.2" },
 ]
@@ -2486,6 +2502,7 @@ test = [
     { name = "fakeredis", extras = ["lua"], specifier = "~=2.35.1" },
     { name = "pytest-django", specifier = "~=4.12.0" },
     { name = "pytest-playwright", specifier = "~=0.8.0" },
+    { name = "pytest-rerunfailures", specifier = "~=14.0" },
     { name = "tblib", specifier = "~=3.2.2" },
 ]
 
