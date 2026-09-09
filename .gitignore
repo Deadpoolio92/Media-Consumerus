@@ -20,3 +20,6 @@ TODO.txt
 .cache
 .gstack/
 .claude/settings.local.json
+
+# Questimus per-skill agent tokens (deployed by project-sync)
+.claude/skills/questimus*/.token
