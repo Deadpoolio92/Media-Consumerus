@@ -26,3 +26,14 @@ ALLAUTH_TRUSTED_CLIENT_IP_HEADER = ""
 
 # Steam API key for testing
 STEAM_API_KEY = "test_steam_api_key"
+
+# Playwright tests use LiveServerTestCase, whose threaded server shares the SQLite
+# test DB with the test connection — concurrent writes intermittently collide
+# ("database table is locked"). Raise the busy timeout well above CI latency so
+# transient write contention waits it out instead of erroring.
+_databases = DATABASES  # noqa: F405  (star-imported from settings.py)
+if _databases["default"]["ENGINE"].endswith("sqlite3"):
+    _databases["default"]["OPTIONS"] = {
+        **_databases["default"].get("OPTIONS", {}),
+        "timeout": 60,
+    }
