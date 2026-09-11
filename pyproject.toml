@@ -92,5 +92,4 @@ ignore = "H006,H021"
 indent = 2
 
 [tool.coverage.run]
-concurrency = ["multiprocessing"]
 omit = ["*/migrations/*", "*/tests/*", "*/__init__.py", "*/admin.py"]

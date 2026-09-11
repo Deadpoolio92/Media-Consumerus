@@ -80,7 +80,7 @@ jobs:
       - name: Build Coverage Report
         working-directory: src
         run: |
-          uv run coverage combine
+          # pytest runs single-process, so no parallel data files to combine.
           uv run coverage report
           uv run coverage xml
 
