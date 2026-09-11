@@ -57,11 +57,11 @@ items:
   - name: questimus-media-consumerus
     type: skill
     deployed_version: "0.1.0"
-    deployed_hash: "930b75e736d49a43"
-    deployed_date: "2026-09-09"
+    deployed_hash: "238109523eec82ee"
+    deployed_date: "2026-09-10"
     customized: false
     deployed_hashes:
-      claude-code: "930b75e736d49a43"
+      claude-code: "238109523eec82ee"
   - name: ponytail-mode-hooks
     type: hook
     deployed_version: "1.0.1"
