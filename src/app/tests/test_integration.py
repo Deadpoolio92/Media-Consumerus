@@ -49,7 +49,10 @@ class IntegrationTest(StaticLiveServerTestCase):
         expect(self.page.get_by_role("main")).to_contain_text("Breaking Bad")
         self.page.get_by_title("Season 1").click()
         expect(self.page.get_by_role("main")).to_contain_text("Season 1")
-        self.page.locator(".p-2").first.click()
+        # First .p-2 matches are hidden inputs inside the closed Track Episode
+        # modal (in the DOM but display:none); click the first VISIBLE one — the
+        # episode's "Track Episode" button.
+        self.page.locator(".p-2:visible").first.click()
         expect(self.page.get_by_role("main")).to_contain_text("Track Episode")
         self.page.locator(".relative > .px-2").first.click()
         self.page.get_by_role("button", name="Fill in air date").click()
