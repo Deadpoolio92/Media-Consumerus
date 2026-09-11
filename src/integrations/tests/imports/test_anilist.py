@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
+import requests
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -91,8 +92,14 @@ class ImportAniList(TestCase):
             datetime(2025, 6, 4, 10, 11, 17, tzinfo=UTC),
         )
 
-    def test_user_not_found(self):
-        """Test that an error is raised if the user is not found."""
+    @patch("requests.Session.post")
+    def test_user_not_found(self, mock_request):
+        """Test that an error is raised if the user is not found (mocked, offline)."""
+        response = requests.Response()
+        response.status_code = 404
+        response.json = lambda: {"errors": [{"message": "User not found"}]}
+        mock_request.side_effect = requests.exceptions.HTTPError(response=response)
+
         self.assertRaises(
             helpers.MediaImportError,
             anilist.importer,
