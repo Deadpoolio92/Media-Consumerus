@@ -10,6 +10,7 @@ db.sqlite3-shm
 db.sqlite3-wal
 .vscode/launch.json
 .agents
+.dsh
 AGENTS.md
 .claude
 CLAUDE.md
@@ -18,7 +19,6 @@ requests.http
 TODO.txt
 .codex
 .cache
-.gstack/
 .claude/settings.local.json
 
 # Questimus per-skill agent tokens (deployed by project-sync)
